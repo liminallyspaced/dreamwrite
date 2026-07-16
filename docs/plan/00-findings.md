@@ -175,14 +175,17 @@ One flat JSON file. Problems as soon as a board exists:
 
 ## 5.5 Real bugs, and features that don't do what the README says
 
-### Data-loss class — fix these in Phase 1 regardless of sequencing
+### Data-loss class — ✅ ALL FIXED (2026-07-16, commits `a7ea661` + `e9a9052`)
 
-| # | Bug | Why it's bad |
-|---|-----|--------------|
-| 1 | **`app.js:567-569` — autosave dies permanently and silently.** `history` embeds up to 30 full deep copies of every block *inside* the project; `persistLocal` writes that whole structure to **two** localStorage keys (one a legacy alias). The quota error is swallowed by a bare `catch {}`. | Once the script grows past quota, autosave stops forever. **No user feedback.** This is the worst bug in the codebase. |
-| 2 | **`app.js:547-556` — autosave overwrites the user's real file** 800ms after any keystroke, with `.catch(() => {})`. Every main-process `fs` call is sync with no `try`/`catch` (`main.js:170,199,224,230,234`); `app.js:459` has none either. | Saves fail **silently**. Combined with #1, both persistence paths can be dead at once with no indication. |
-| 3 | **`app.js:1602` — revision restore replaces blocks without snapshotting current state first.** | One `confirm()` dialog away from unrecoverable loss. |
-| 4 | **`app.js:144-148` — "Sync from scenes" is destructive.** `autoCardsFromScenes` (`engine.js:657-674`) rebuilds the array from scratch: every hand-written summary is destroyed. No merge on `sceneId`, no confirm. **Auto-fires on first Cards visit** (`app.js:1682-1685`). | Silent, automatic, unundoable destruction of the user's writing. |
+Kept here because the *reasoning* still matters — and because two of them are only
+stopgapped until the command stack lands.
+
+| # | Bug | Status |
+|---|-----|--------|
+| 1 | **`app.js:567-569` — autosave died permanently and silently.** `history` embedded up to 30 full deep copies of every block *inside* the project; `persistLocal` wrote that whole structure to **two** localStorage keys. The quota error was swallowed by a bare `catch {}`. Once the script grew past quota, autosave stopped forever, with no feedback. **The worst bug in the codebase.** | ✅ **Fixed.** `core/persist/autosave.js`: history moved to its own key, project payload carries none, quota evicts history and retries the draft alone, failures are returned and surfaced in `#saveAlert`. Legacy double-write dropped; stale legacy key deleted on write (it was read *first*, so it would have shadowed fresh work). |
+| 2 | **`app.js:547-556` — the real file was overwritten** 800ms after any keystroke with `.catch(() => {})`. Every main-process `fs` call was sync with no `try`/`catch`. `saveProject` had none either — and its callers are `onclick` handlers, so a rejected IPC became an unhandled rejection: press Save, nothing happens, nothing tells you. | ✅ **Fixed.** All paths report. `main.js` is async throughout and writes go through `writeFileAtomic` (temp in the same dir → `fsync` → rename), so a crash mid-write can't truncate a project. |
+| 3 | **`app.js:1602` — revision restore replaced blocks without snapshotting current state first.** One `confirm()` from unrecoverable loss. | ⚠️ **Stopgapped.** Snapshots `before restore` first. The real fix is the command stack — restore should be one undoable command, not a snapshot side-effect. |
+| 4 | **"Sync from scenes" was destructive.** `autoCardsFromScenes` rebuilt the array from scratch, destroying every hand-written summary. No merge, no confirm. | ✅ **Fixed.** `engine.syncCardsFromScenes` reconciles on `sceneId`; cards whose scene is gone are **kept and marked orphaned** rather than binned. *(The "auto-fires on first Cards visit" part was overstated — that path is guarded by `!cards.length`, so it only seeds an empty board.)* |
 
 ### Correctness
 

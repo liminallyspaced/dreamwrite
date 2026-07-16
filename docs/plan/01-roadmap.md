@@ -111,10 +111,16 @@ in `00-findings.md` would have survived a green unit suite.
 
 *Goal: the number on screen is the number in the PDF is the number the industry means — and the app stops eating work.*
 
-### 🚨 Do these first, before anything else in this phase
+### ✅ Data-loss bugs — DONE (2026-07-16, `a7ea661` + `e9a9052`)
 
-The audit surfaced four **active data-loss bugs** (`00-findings.md` §5.5). These aren't "Phase 1 work,"
-they're "the app is currently unsafe to write in" work:
+All four fixed; the app is now safe to write in. #3 (revision restore) is **stopgapped** — it snapshots
+before overwriting, but the real fix is the command stack below. Detail in `00-findings.md` §5.5.
+
+<details>
+<summary>The original four, for context</summary>
+
+The audit surfaced four **active data-loss bugs** (`00-findings.md` §5.5). These weren't "Phase 1 work,"
+they were "the app is currently unsafe to write in" work:
 
 1. **`app.js:567-569` — autosave dies permanently and silently.** 30 deep copies of every block live
    *inside* the project; `persistLocal` writes the lot to two localStorage keys; the quota error is
@@ -129,6 +135,24 @@ they're "the app is currently unsafe to write in" work:
 
 Fixing #1 and #2 largely falls out of ADR-0004 (revisions move out of the document; writes become async
 and atomic) — but **surface the errors**. A swallowed `catch {}` on the save path is the bug behind the bug.
+
+</details>
+
+**What landed:** `core/persist/autosave.js` (pure, quota-tested against a fake storage that really
+enforces a budget) · `writeFileAtomic` in main.js · a `#saveAlert` in the status bar · atomic async
+writes throughout · `engine.syncCardsFromScenes` (merges rather than overwrites; orphans are kept).
+
+**The principle that fell out, worth keeping:** *the user's current work must never fail to save because
+of old snapshots.* On quota, history is evicted and the draft is retried alone. A snapshot is worth less
+than the draft. That's ADR-0004's "revisions live outside the document" applied at the storage layer.
+
+**Also added:** `tests/smoke/smoke.js` — 15 checks driving the real app over CDP, including that autosave
+actually lands under the new key with no inlined history. It caught its own race (asserting before the
+bundle evaluated) once the bundle grew.
+
+---
+
+### ▶ Next: `core/store/` + the command stack
 
 This is the phase that makes Platen honest. Per `00-findings.md` Crack 1, there are **three** implementations of "page" and none is right. **The fix is not three patches. The fix is one implementation.**
 
