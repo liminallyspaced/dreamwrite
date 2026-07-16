@@ -1,7 +1,41 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const fsp = require('fs/promises');
 const { pathToFileURL } = require('url');
+
+/**
+ * Write a file so a crash mid-write cannot destroy the previous contents.
+ *
+ * The inherited code used fs.writeFileSync straight onto the target, which is both
+ * blocking (autosave fires 800ms after every keystroke — that stall lands on the
+ * writer's typing) and non-atomic: an interruption between truncate and write
+ * leaves a truncated project. See docs/plan/00-findings.md §4 / ADR-0004.
+ *
+ * Write to a temp file in the SAME directory (rename is only atomic within a
+ * filesystem), fsync it, then rename over the target.
+ */
+async function writeFileAtomic(target, content) {
+  const dir = path.dirname(target);
+  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.tmp`);
+
+  let handle;
+  try {
+    handle = await fsp.open(tmp, 'w');
+    await handle.writeFile(content, 'utf8');
+    await handle.sync(); // durable before the rename, or the atomicity is a lie
+  } finally {
+    await handle?.close();
+  }
+
+  try {
+    await fsp.rename(tmp, target);
+  } catch (err) {
+    // Don't leave litter behind if the rename failed.
+    await fsp.rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+}
 
 let mainWindow = null;
 const isDev = !app.isPackaged;
@@ -149,7 +183,9 @@ ipcMain.handle('dialog:openProject', async () => {
   });
   if (result.canceled || !result.filePaths[0]) return null;
   const filePath = result.filePaths[0];
-  const content = fs.readFileSync(filePath, 'utf8');
+  // Errors propagate to the renderer as a rejected invoke — deliberately. The
+  // renderer surfaces them; it must never be left guessing whether a read worked.
+  const content = await fsp.readFile(filePath, 'utf8');
   return { filePath, content };
 });
 
@@ -167,7 +203,7 @@ ipcMain.handle('dialog:saveProject', async (_e, { filePath, content, suggestedNa
         ? result.filePath
         : `${result.filePath}.platen`;
   }
-  fs.writeFileSync(target, content, 'utf8');
+  await writeFileAtomic(target, content);
   return { filePath: target };
 });
 
@@ -182,7 +218,7 @@ ipcMain.handle('dialog:importFountain', async () => {
     properties: ['openFile'],
   });
   if (result.canceled || !result.filePaths[0]) return null;
-  return { filePath: result.filePaths[0], content: fs.readFileSync(result.filePaths[0], 'utf8') };
+  return { filePath: result.filePaths[0], content: await fsp.readFile(result.filePaths[0], 'utf8') };
 });
 
 ipcMain.handle('dialog:exportText', async (_e, { content, suggestedName, filters, defaultExt }) => {
@@ -196,7 +232,7 @@ ipcMain.handle('dialog:exportText', async (_e, { content, suggestedName, filters
   if (defaultExt && !target.toLowerCase().endsWith(`.${defaultExt}`)) {
     target = `${target}.${defaultExt}`;
   }
-  fs.writeFileSync(target, content, 'utf8');
+  await writeFileAtomic(target, content);
   return { filePath: target };
 });
 
@@ -221,17 +257,17 @@ ipcMain.handle('export:pdf', async (_e, { html, suggestedName }) => {
     pageSize: 'Letter',
     margins: { marginType: 'none' },
   });
-  fs.writeFileSync(target, pdf);
+  await fsp.writeFile(target, pdf);
   pdfWin.destroy();
   return { filePath: target };
 });
 
 ipcMain.handle('fs:readText', async (_e, filePath) => {
-  return fs.readFileSync(filePath, 'utf8');
+  return fsp.readFile(filePath, 'utf8');
 });
 
 ipcMain.handle('fs:writeText', async (_e, { filePath, content }) => {
-  fs.writeFileSync(filePath, content, 'utf8');
+  await writeFileAtomic(filePath, content);
   return true;
 });
 

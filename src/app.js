@@ -7,6 +7,7 @@ import {
   isCaretAtEnd,
   placeholderFor,
 } from './views/script/block-dom.js';
+import { writeAutosave, readAutosave } from './core/persist/autosave.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -309,21 +310,17 @@ import {
   /* ---------- project lifecycle ---------- */
 
   function loadAutosaveOrWelcome() {
-    try {
-      const raw = localStorage.getItem('scriptdesk.autosave') || localStorage.getItem('platen.autosave');
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (data && data.project) {
-          state.project = sanitizeProject(normalizeProject(data.project));
-          state.filePath = data.filePath || null;
-          state.dirty = !!data.dirty;
-          hideWelcome();
-          fullRender();
-          return;
-        }
-      }
-    } catch {
-      /* ignore */
+    // readAutosave prefers the current key over the legacy one and recombines
+    // history from its separate key. It returns null (never throws) on corrupt
+    // data, so a bad autosave costs you the restore, not the app.
+    const data = readAutosave(window.localStorage);
+    if (data && data.project) {
+      state.project = sanitizeProject(normalizeProject(data.project));
+      state.filePath = data.filePath || null;
+      state.dirty = !!data.dirty;
+      hideWelcome();
+      fullRender();
+      return;
     }
     showWelcome();
   }
@@ -468,11 +465,25 @@ BLACKOUT.
       content: JSON.stringify(state.project, null, 2),
       suggestedName: slugify(state.project.titlePage?.title || 'untitled') + '.platen',
     };
-    const res = await api.saveProject(payload);
-    if (!res) return;
+
+    let res;
+    try {
+      res = await api.saveProject(payload);
+    } catch (err) {
+      // This had NO try/catch, and the callers are `onclick = () => saveProject()`,
+      // so a rejected IPC became an unhandled rejection: you press Save, nothing
+      // happens, and nothing tells you. findings.md §5.5 #2.
+      reportSaveProblem('file', 'Save failed — your changes are NOT on disk.', err);
+      alert(`Could not save the project.\n\n${err?.message || err}\n\nYour work is still in the editor. Try Save As to a different location.`);
+      return;
+    }
+
+    if (!res) return; // user cancelled the dialog — not an error
+
     state.filePath = res.filePath;
     state.dirty = false;
     state.project.updatedAt = new Date().toISOString();
+    clearSaveAlert('file');
     updateChrome();
     persistLocal();
   }
@@ -560,27 +571,99 @@ BLACKOUT.
         api.writeText({
           filePath: state.filePath,
           content: JSON.stringify(state.project, null, 2),
-        }).then(() => {
-          state.dirty = false;
-          updateChrome();
-        }).catch(() => {});
+        })
+          .then(() => {
+            state.dirty = false;
+            clearSaveAlert('file');
+            updateChrome();
+          })
+          .catch((err) => {
+            // Previously `.catch(() => {})`. A failing write to the user's real
+            // file is exactly the thing they must be told about — silence here
+            // meant the draft on disk silently stopped tracking the editor.
+            // findings.md §5.5 #2.
+            reportSaveProblem('file', `Could not save to ${state.filePath}`, err);
+          });
       }
     }, 800);
   }
 
+  /**
+   * Mirror the project into localStorage.
+   *
+   * All the real work — payload construction, quota handling, history eviction —
+   * lives in core/persist/autosave.js and is unit-tested. This function's only job
+   * is to hand it the storage and SURFACE what comes back.
+   */
   function persistLocal() {
-    try {
-      const payload = JSON.stringify({
-        project: state.project,
-        filePath: state.filePath,
-        dirty: state.dirty,
-        savedAt: new Date().toISOString(),
-      });
-      localStorage.setItem('platen.autosave', payload);
-      localStorage.setItem('scriptdesk.autosave', payload); // legacy key
-    } catch {
-      /* quota */
+    const result = writeAutosave(window.localStorage, {
+      project: state.project,
+      filePath: state.filePath,
+      dirty: state.dirty,
+      savedAt: new Date().toISOString(),
+    });
+
+    if (!result.ok) {
+      const detail =
+        result.reason === 'quota'
+          ? 'Local autosave is full. Save to a file (Ctrl+S) — your work is not being backed up.'
+          : 'Local autosave is unavailable. Save to a file (Ctrl+S) — your work is not being backed up.';
+      reportSaveProblem('local', detail, result.error);
+      return;
     }
+
+    clearSaveAlert('local');
+
+    if (result.evictedHistory) {
+      // Not a failure: the draft was prioritised over old snapshots, by design.
+      // Still worth saying out loud, because revisions did just disappear.
+      showSaveAlert('Old revision snapshots dropped to make room — the script itself is saved.', 'warn');
+    }
+  }
+
+  /* ---------- save status surfacing ---------- */
+
+  // Which subsystems are currently unhappy. Keyed so a local-storage problem and a
+  // file-write problem can't clobber each other's message.
+  const saveProblems = new Map();
+
+  function reportSaveProblem(kind, message, err) {
+    saveProblems.set(kind, message);
+    // Keep the detail in the console for diagnosis — but never ONLY in the console.
+    console.error(`[platen] save failed (${kind}):`, err);
+    renderSaveAlert();
+  }
+
+  function clearSaveAlert(kind) {
+    if (saveProblems.delete(kind)) renderSaveAlert();
+  }
+
+  function renderSaveAlert() {
+    const el = document.getElementById('saveAlert');
+    if (!el) return;
+    if (!saveProblems.size) {
+      el.hidden = true;
+      return;
+    }
+    const messages = [...saveProblems.values()];
+    el.hidden = false;
+    el.classList.remove('warn');
+    el.textContent = 'Not saving';
+    el.title = messages.join('\n');
+  }
+
+  /** Transient, non-blocking notice. Distinct from a persistent failure. */
+  function showSaveAlert(message, kind = 'warn') {
+    const el = document.getElementById('saveAlert');
+    if (!el || saveProblems.size) return; // a real failure outranks a notice
+    el.hidden = false;
+    el.classList.toggle('warn', kind === 'warn');
+    el.textContent = message.length > 60 ? `${message.slice(0, 57)}…` : message;
+    el.title = message;
+    clearTimeout(state.saveAlertTimer);
+    state.saveAlertTimer = setTimeout(() => {
+      if (!saveProblems.size) el.hidden = true;
+    }, 6000);
   }
 
   function snapshot(label) {

@@ -88,7 +88,29 @@ function connect(wsUrl) {
     return r.result?.result?.value;
   };
 
-  return { ready, evaluate, close: () => ws.close() };
+  /**
+   * Poll `expression` until it is truthy.
+   *
+   * Not optional: connecting to the CDP target does NOT mean the page has finished
+   * evaluating bundle.js. Asserting immediately after connect is a race — it passed
+   * until the bundle grew, then started failing check #1 while check #2 (which ran
+   * microseconds later, after evaluation finished) passed. A flaky test is worse
+   * than no test.
+   */
+  const waitFor = async (expression, { timeoutMs = 10000, label = expression } = {}) => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      try {
+        if (await evaluate(expression)) return true;
+      } catch {
+        /* page may still be loading */
+      }
+      if (Date.now() > deadline) throw new Error(`timed out waiting for: ${label}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+
+  return { ready, evaluate, waitFor, close: () => ws.close() };
 }
 
 async function main() {
@@ -104,7 +126,10 @@ async function main() {
     const page = await waitForTarget();
     const cdp = connect(page.webSocketDebuggerUrl);
     await cdp.ready;
-    await cdp.evaluate('1'); // warm up
+
+    // Wait for the bundle to actually evaluate before asserting anything about it.
+    await cdp.waitFor('document.readyState === "complete"', { label: 'document ready' });
+    await cdp.waitFor('typeof window.ScriptEngine !== "undefined"', { label: 'bundle evaluated' });
 
     // --- the app actually loaded its code -------------------------------------
     check('window.ScriptEngine installed', await cdp.evaluate('typeof window.ScriptEngine === "object"'));
@@ -153,6 +178,29 @@ async function main() {
       return { html: el.innerHTML };
     })()`);
     check('multi-line block does not throw', !multiline.error, multiline.error || 'ok');
+
+    // --- persistence: the fix for findings.md §5.5 #1 --------------------------
+    // Autosave is debounced 800ms off markDirty; typing above should have armed it.
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const storage = await cdp.evaluate(`(() => ({
+      autosave:  localStorage.getItem('platen.autosave') ? 'set' : 'missing',
+      history:   localStorage.getItem('platen.autosave.history') ? 'set' : 'absent',
+      legacy:    localStorage.getItem('scriptdesk.autosave') ? 'PRESENT' : 'absent',
+      hasInlineHistory: (() => {
+        const raw = localStorage.getItem('platen.autosave');
+        if (!raw) return null;
+        try { return JSON.parse(raw).project.history !== undefined; } catch { return 'unparseable'; }
+      })(),
+    }))()`);
+
+    check('autosave written to the current key', storage.autosave === 'set', JSON.stringify(storage));
+    check('legacy key NOT written (it would shadow fresh work)', storage.legacy === 'absent');
+    check('history is NOT inlined in the autosave payload', storage.hasInlineHistory === false);
+
+    // A save alert must have somewhere to go.
+    check('save alert element present', await cdp.evaluate('!!document.getElementById("saveAlert")'));
+    check('save alert hidden while healthy', await cdp.evaluate('document.getElementById("saveAlert").hidden === true'));
 
     // --- no errors accumulated anywhere ---------------------------------------
     const pageErrors = await cdp.evaluate('window.__smokeErrors ? window.__smokeErrors.length : 0');

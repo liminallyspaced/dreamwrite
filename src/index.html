@@ -253,6 +253,12 @@
     </div>
 
     <footer id="statusbar">
+      <!--
+        Save failures MUST land somewhere the writer can see. The inherited build
+        swallowed them (bare `catch {}`), so autosave could die permanently and
+        silently. See docs/plan/00-findings.md §5.5 #1.
+      -->
+      <span id="saveAlert" class="save-alert" hidden role="status" aria-live="polite"></span>
       <span id="statusPath">No file · local autosave</span>
       <span class="grow"></span>
       <span class="pill" id="statusElement">Action</span>

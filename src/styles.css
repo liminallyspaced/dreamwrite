@@ -740,6 +740,37 @@ textarea { resize: vertical; min-height: 80px; }
   z-index: 15;
 }
 #statusbar .grow { flex: 1; }
+
+/*
+  Save alert — the only loud thing in a deliberately quiet monochrome UI.
+  It earns the ink: it fires when the writer's work is NOT being saved, which
+  used to happen silently (docs/plan/00-findings.md §5.5 #1). Red is semantic
+  here, not decorative — cf. ADR-0002.
+*/
+#saveAlert {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid #a33;
+  background: #2a0f0f;
+  color: #ff9d9d;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  cursor: help;
+}
+#saveAlert[hidden] { display: none; }
+#saveAlert::before {
+  content: '▲';
+  font-size: 9px;
+}
+#saveAlert.warn {
+  border-color: #a87b2a;
+  background: #2a210f;
+  color: #ffd79d;
+}
 .pill {
   background: #222;
   border: 1px solid #333;
