@@ -76,6 +76,29 @@ export function replaceBlocks(project, { blocks }) {
 }
 
 /**
+ * Insert multiple blocks at an index (one undo step).
+ * @param {{ index: number, blocks: object[] }} payload
+ */
+export function insertBlocks(project, { index, blocks: toInsert }) {
+  if (!Array.isArray(toInsert) || !toInsert.length) return project;
+  const blocks = (project.blocks || []).slice();
+  const i = Math.max(0, Math.min(index, blocks.length));
+  blocks.splice(i, 0, ...toInsert.map((b) => ({ ...b })));
+  return touch({ ...project, blocks });
+}
+
+/**
+ * Remove multiple blocks by id (inverse of insertBlocks).
+ * @param {{ ids: string[] }} payload
+ */
+export function removeBlocks(project, { ids }) {
+  if (!Array.isArray(ids) || !ids.length) return project;
+  const idSet = new Set(ids);
+  const blocks = (project.blocks || []).filter((b) => b && !idSet.has(b.id));
+  return touch({ ...project, blocks });
+}
+
+/**
  * Field-level text replace across all blocks (Replace All).
  * @param {{ find: string, replace: string, caseSensitive?: boolean }} payload
  * @returns {{ project: object, count: number, beforeBlocks: object[] }}

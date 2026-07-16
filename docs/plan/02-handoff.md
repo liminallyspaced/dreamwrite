@@ -53,8 +53,10 @@ Landed. Design: `docs/architecture/store-design.md`.
 - Every *wired* mutation goes through `store.execute` / `invert`.
 - Menu + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z own undo/redo (Chromium `{role:undo}` removed).
 - Revision restore is one undoable command.
-- **Still:** snippets/bible/etc. use `markDirty` (may clear undo if project identity diverges).
-  Prefer `exec()` for every new path. Rename-propagation (ADR-0003) still future.
+- **Also (2026-07-16):** remaining document paths (snippets, bible, cards, notes, title,
+  theme, replace all/one) go through `exec()` — `bible.*`, `blocks.insertMany`,
+  `cards.add`, `meta.setSettings`. `markDirty` is escape-hatch only. Rename-propagation
+  (ADR-0003) still future.
 
 ### 2. Pagination — the product fix ← DONE (engine + stats + PDF)
 
@@ -62,7 +64,12 @@ Landed: pure `paginate()` / `wrap()`; stats + PDF agree by construction; golden 
 Courier Prime in PDF; fonts.ready. **Still open:** render a real multi-page paper stack in
 the editor (today the count is correct; the DOM is still one infinite page).
 
-### 3. Split `app.js` against the store ← START HERE
+### 3. Split `app.js` against the store ← IN PROGRESS
+
+Store catalogue complete enough for script/bible/cards/meta. Document mutations no longer
+use `markDirty`. **Next slice:** extract leaf modules (`views/script/*`, project I/O) one
+section at a time, smoke-verified per slice. Do not invent a temporary state-sharing scheme.
+
 ### 4. Multi-page editor stack (finish ADR-0006 screen consumer)
 ### 5. The wheel (Phase 2) → 6. Timeline (Phase 3) → 7. Board (Phase 4) → 8. Completeness (Phase 5)
 

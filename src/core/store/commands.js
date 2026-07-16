@@ -5,6 +5,7 @@
 import * as blocks from './mutations/blocks.js';
 import * as cards from './mutations/cards.js';
 import * as meta from './mutations/meta.js';
+import * as bible from './mutations/bible.js';
 import { restoreRevisionBlocks } from './mutations/compound.js';
 
 /**
@@ -84,6 +85,17 @@ export const registry = {
     },
   },
 
+  'blocks.insertMany': {
+    label: 'Insert blocks',
+    apply(project, payload) {
+      return blocks.insertBlocks(project, payload);
+    },
+    invert(project, payload) {
+      // inverse: { ids }
+      return blocks.removeBlocks(project, { ids: payload.ids });
+    },
+  },
+
   'cards.set': {
     label: 'Update cards',
     apply(project, payload) {
@@ -117,6 +129,17 @@ export const registry = {
     },
   },
 
+  'cards.add': {
+    label: 'Add card',
+    apply(project, payload) {
+      return cards.addCard(project, payload);
+    },
+    invert(project, payload) {
+      const next = (project.cards || []).filter((c) => c && c.id !== payload.id);
+      return cards.setCards(project, { cards: next });
+    },
+  },
+
   'meta.setTitlePage': {
     label: 'Title page',
     apply(project, payload) {
@@ -134,6 +157,102 @@ export const registry = {
     },
     invert(project, payload) {
       return meta.setNotes(project, { notes: payload.before });
+    },
+  },
+
+  'meta.setSettings': {
+    label: 'Settings',
+    apply(project, payload) {
+      return meta.setSettings(project, payload);
+    },
+    invert(project, payload) {
+      return meta.setSettings(project, { settings: payload.before });
+    },
+  },
+
+  'bible.setCharacters': {
+    label: 'Characters',
+    apply(project, payload) {
+      return bible.setCharacters(project, payload);
+    },
+    invert(project, payload) {
+      return bible.setCharacters(project, { characters: payload.before });
+    },
+  },
+
+  'bible.setLocations': {
+    label: 'Locations',
+    apply(project, payload) {
+      return bible.setLocations(project, payload);
+    },
+    invert(project, payload) {
+      return bible.setLocations(project, { locations: payload.before });
+    },
+  },
+
+  'bible.updateCharacter': {
+    label: 'Edit character',
+    apply(project, payload) {
+      return bible.updateCharacter(project, payload);
+    },
+    invert(project, payload) {
+      return bible.updateCharacter(project, {
+        id: payload.id,
+        patch: payload.beforePatch,
+      });
+    },
+  },
+
+  'bible.updateLocation': {
+    label: 'Edit location',
+    apply(project, payload) {
+      return bible.updateLocation(project, payload);
+    },
+    invert(project, payload) {
+      return bible.updateLocation(project, {
+        id: payload.id,
+        patch: payload.beforePatch,
+      });
+    },
+  },
+
+  'bible.addCharacter': {
+    label: 'Add character',
+    apply(project, payload) {
+      return bible.addCharacter(project, payload);
+    },
+    invert(project, payload) {
+      return bible.removeCharacter(project, { id: payload.id });
+    },
+  },
+
+  'bible.addLocation': {
+    label: 'Add location',
+    apply(project, payload) {
+      return bible.addLocation(project, payload);
+    },
+    invert(project, payload) {
+      return bible.removeLocation(project, { id: payload.id });
+    },
+  },
+
+  'bible.removeCharacter': {
+    label: 'Delete character',
+    apply(project, payload) {
+      return bible.removeCharacter(project, payload);
+    },
+    invert(project, payload) {
+      return bible.addCharacter(project, { character: payload.character });
+    },
+  },
+
+  'bible.removeLocation': {
+    label: 'Delete location',
+    apply(project, payload) {
+      return bible.removeLocation(project, payload);
+    },
+    invert(project, payload) {
+      return bible.addLocation(project, { location: payload.location });
     },
   },
 
@@ -228,6 +347,15 @@ export function prepare(type, project, payload = {}) {
         label: payload.label || def.label,
       };
     }
+    case 'blocks.insertMany': {
+      const list = payload.blocks || [];
+      if (!list.length) return { error: 'noop' };
+      if (list.some((b) => !b?.id)) return { error: 'insertMany requires block.id' };
+      return {
+        inversePayload: { ids: list.map((b) => b.id) },
+        label: payload.label || def.label,
+      };
+    }
     case 'cards.set': {
       return {
         inversePayload: {
@@ -246,6 +374,7 @@ export function prepare(type, project, payload = {}) {
       return {
         inversePayload: { id: payload.id, beforePatch },
         label: def.label,
+        mergeKey: payload.mergeKey || `card:${payload.id}`,
       };
     }
     case 'cards.syncFromScenes': {
@@ -256,12 +385,20 @@ export function prepare(type, project, payload = {}) {
         label: def.label,
       };
     }
+    case 'cards.add': {
+      if (!payload.card?.id) return { error: 'add requires card.id' };
+      return {
+        inversePayload: { id: payload.card.id },
+        label: def.label,
+      };
+    }
     case 'meta.setTitlePage': {
       return {
         inversePayload: {
           before: { ...(project.titlePage || {}) },
         },
         label: def.label,
+        mergeKey: payload.mergeKey || 'meta:title',
       };
     }
     case 'meta.setNotes': {
@@ -270,6 +407,83 @@ export function prepare(type, project, payload = {}) {
         inversePayload: { before: project.notes || '' },
         label: def.label,
         mergeKey: 'meta:notes',
+      };
+    }
+    case 'meta.setSettings': {
+      return {
+        inversePayload: {
+          before: { ...(project.settings || {}) },
+        },
+        label: def.label,
+        mergeKey: payload.mergeKey || 'meta:settings',
+      };
+    }
+    case 'bible.setCharacters': {
+      return {
+        inversePayload: {
+          before: JSON.parse(JSON.stringify(project.characters || [])),
+        },
+        label: payload.label || def.label,
+      };
+    }
+    case 'bible.setLocations': {
+      return {
+        inversePayload: {
+          before: JSON.parse(JSON.stringify(project.locations || [])),
+        },
+        label: payload.label || def.label,
+      };
+    }
+    case 'bible.updateCharacter': {
+      const c = (project.characters || []).find((x) => x.id === payload.id);
+      if (!c) return { error: 'Character not found' };
+      const beforePatch = {};
+      for (const k of Object.keys(payload.patch || {})) beforePatch[k] = c[k];
+      return {
+        inversePayload: { id: payload.id, beforePatch },
+        label: def.label,
+        mergeKey: payload.mergeKey || `char:${payload.id}`,
+      };
+    }
+    case 'bible.updateLocation': {
+      const loc = (project.locations || []).find((x) => x.id === payload.id);
+      if (!loc) return { error: 'Location not found' };
+      const beforePatch = {};
+      for (const k of Object.keys(payload.patch || {})) beforePatch[k] = loc[k];
+      return {
+        inversePayload: { id: payload.id, beforePatch },
+        label: def.label,
+        mergeKey: payload.mergeKey || `loc:${payload.id}`,
+      };
+    }
+    case 'bible.addCharacter': {
+      if (!payload.character?.id) return { error: 'add requires character.id' };
+      return {
+        inversePayload: { id: payload.character.id },
+        label: def.label,
+      };
+    }
+    case 'bible.addLocation': {
+      if (!payload.location?.id) return { error: 'add requires location.id' };
+      return {
+        inversePayload: { id: payload.location.id },
+        label: def.label,
+      };
+    }
+    case 'bible.removeCharacter': {
+      const c = (project.characters || []).find((x) => x.id === payload.id);
+      if (!c) return { error: 'Character not found' };
+      return {
+        inversePayload: { character: { ...c } },
+        label: def.label,
+      };
+    }
+    case 'bible.removeLocation': {
+      const loc = (project.locations || []).find((x) => x.id === payload.id);
+      if (!loc) return { error: 'Location not found' };
+      return {
+        inversePayload: { location: { ...loc } },
+        label: def.label,
       };
     }
     case 'project.restoreRevision': {

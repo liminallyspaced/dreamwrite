@@ -133,4 +133,61 @@ describe('createStore commands', () => {
     store.undo();
     expect(events).toEqual(['execute', 'undo']);
   });
+
+  it('insertMany inserts then undoes as one step', () => {
+    const store = createStore({ project: blankProject() });
+    const blocks = [
+      { id: 'c1', type: 'character', text: 'MAYA' },
+      { id: 'd1', type: 'dialogue', text: 'Hi.' },
+    ];
+    store.execute({
+      type: 'blocks.insertMany',
+      payload: { index: 2, blocks },
+    });
+    expect(store.getProject().blocks.map((b) => b.id)).toEqual(['s1', 'a1', 'c1', 'd1']);
+    store.undo();
+    expect(store.getProject().blocks.map((b) => b.id)).toEqual(['s1', 'a1']);
+  });
+
+  it('bible character add/update/remove is undoable', () => {
+    const store = createStore({ project: blankProject() });
+    store.execute({
+      type: 'bible.addCharacter',
+      payload: { character: { id: 'ch1', name: 'MAYA', role: '', description: '', notes: '' } },
+    });
+    expect(store.getProject().characters).toHaveLength(1);
+    store.execute({
+      type: 'bible.updateCharacter',
+      payload: { id: 'ch1', patch: { role: 'lead' } },
+    });
+    expect(store.getProject().characters[0].role).toBe('lead');
+    store.undo();
+    expect(store.getProject().characters[0].role).toBe('');
+    store.undo();
+    expect(store.getProject().characters).toHaveLength(0);
+  });
+
+  it('meta.setNotes merges typing into one undo step', () => {
+    const store = createStore({ project: blankProject() }, { mergeWindowMs: 5000 });
+    store.execute({ type: 'meta.setNotes', payload: { notes: 'a' }, mergeKey: 'meta:notes' });
+    store.execute({ type: 'meta.setNotes', payload: { notes: 'ab' }, mergeKey: 'meta:notes' });
+    store.execute({ type: 'meta.setNotes', payload: { notes: 'abc' }, mergeKey: 'meta:notes' });
+    expect(store.getProject().notes).toBe('abc');
+    expect(store._history._depth().undo).toBe(1);
+    store.undo();
+    expect(store.getProject().notes || '').toBe('');
+  });
+
+  it('cards.add then undo removes the card', () => {
+    const store = createStore({ project: blankProject() });
+    store.execute({
+      type: 'cards.add',
+      payload: {
+        card: { id: 'card1', title: 'Beat 1', summary: '', number: 1, color: '#111', beat: '' },
+      },
+    });
+    expect(store.getProject().cards).toHaveLength(1);
+    store.undo();
+    expect(store.getProject().cards || []).toHaveLength(0);
+  });
 });

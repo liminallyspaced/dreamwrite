@@ -7,6 +7,14 @@ import {
   isCaretAtEnd,
   placeholderFor,
 } from './views/script/block-dom.js';
+import {
+  escapeHtml,
+  escapeAttr,
+  safeColor,
+  escapeRegExp,
+  slugify,
+  baseName,
+} from './views/shared/text.js';
 import { writeAutosave, readAutosave } from './core/persist/autosave.js';
 import { createStore } from './core/store/index.js';
 
@@ -252,49 +260,70 @@ import { createStore } from './core/store/index.js';
     };
     $('#btnAddCard').onclick = () => {
       const n = (state.project.cards || []).length + 1;
-      state.project.cards.push({
-        id: E.uid(),
-        sceneId: null,
-        number: n,
-        title: `Beat ${n}`,
-        summary: '',
-        color: MONO_CARD[n % MONO_CARD.length],
-        beat: '',
-      });
-      markDirty();
+      exec(
+        'cards.add',
+        {
+          card: {
+            id: E.uid(),
+            sceneId: null,
+            number: n,
+            title: `Beat ${n}`,
+            summary: '',
+            color: MONO_CARD[n % MONO_CARD.length],
+            beat: '',
+          },
+        },
+        { label: 'Add card' }
+      );
       renderCards();
     };
     $('#btnScanChars').onclick = () => {
-      state.project.characters = E.extractCharacters(state.project);
-      markDirty();
+      exec(
+        'bible.setCharacters',
+        { characters: E.extractCharacters(state.project), label: 'Scan characters' },
+        { label: 'Scan characters' }
+      );
       renderCharacters();
       refreshStats();
     };
     $('#btnAddChar').onclick = () => {
-      state.project.characters.push({
-        id: E.uid(),
-        name: 'NEW CHARACTER',
-        role: '',
-        description: '',
-        notes: '',
-      });
-      markDirty();
+      exec(
+        'bible.addCharacter',
+        {
+          character: {
+            id: E.uid(),
+            name: 'NEW CHARACTER',
+            role: '',
+            description: '',
+            notes: '',
+          },
+        },
+        { label: 'Add character' }
+      );
       renderCharacters();
     };
     $('#btnScanLocs').onclick = () => {
-      state.project.locations = E.extractLocations(state.project);
-      markDirty();
+      exec(
+        'bible.setLocations',
+        { locations: E.extractLocations(state.project), label: 'Scan locations' },
+        { label: 'Scan locations' }
+      );
       renderLocations();
     };
     $('#btnAddLoc').onclick = () => {
-      state.project.locations.push({
-        id: E.uid(),
-        name: 'NEW LOCATION',
-        intExt: 'INT',
-        times: [],
-        notes: '',
-      });
-      markDirty();
+      exec(
+        'bible.addLocation',
+        {
+          location: {
+            id: E.uid(),
+            name: 'NEW LOCATION',
+            intExt: 'INT',
+            times: [],
+            notes: '',
+          },
+        },
+        { label: 'Add location' }
+      );
       renderLocations();
     };
 
@@ -318,8 +347,11 @@ import { createStore } from './core/store/index.js';
       $(`#${id}`).addEventListener('input', syncTitleFromForm);
     });
     els.notesArea.addEventListener('input', () => {
-      state.project.notes = els.notesArea.value;
-      markDirty();
+      exec(
+        'meta.setNotes',
+        { notes: els.notesArea.value },
+        { mergeKey: 'meta:notes', label: 'Notes' }
+      );
     });
 
     $('#btnFindNext').onclick = () => findNext();
@@ -672,11 +704,11 @@ BLACKOUT.
     };
   }
 
+  /**
+   * Escape hatch only — all document paths should use exec().
+   * Rebases the store if state.project diverged (clears undo).
+   */
   function markDirty() {
-    // Prefer exec() for document mutations (undoable). This remains for paths not
-    // yet migrated (snippets, bible, …). In-place mutations share the store's
-    // project object when pullFromStore was last used; otherwise re-base and
-    // clear the undo stack so invert payloads cannot target a diverged doc.
     if (state.suppressDirty) return;
     state.dirty = true;
     state.project.updatedAt = new Date().toISOString();
@@ -997,36 +1029,19 @@ BLACKOUT.
     if (isTimeSuffix) {
       if (b.type !== 'scene') {
         if ((b.text || '').trim()) {
-          // new scene with LOCATION placeholder + time
           const nb = E.createBlock('scene', (`INT. LOCATION${snip}`).toUpperCase());
           const idx = indexOfBlock(id);
-          state.project.blocks.splice(idx + 1, 0, nb);
-          markDirty();
+          exec('blocks.insert', { index: idx + 1, block: nb }, { label: 'Insert scene' });
           renderBlocks();
           renderScenes();
           focusBlock(nb.id, true);
           return;
         }
-        setBlockType(id, 'scene');
-        const el0 = blockEl(id);
-        const block0 = getBlock(id);
-        block0.text = (`INT. LOCATION${snip}`).toUpperCase();
-        setBlockDomText(el0, block0.text);
-        // select LOCATION
-        try {
-          const tn = el0.firstChild;
-          const range = document.createRange();
-          const sel = window.getSelection();
-          const start = block0.text.indexOf('LOCATION');
-          range.setStart(tn, start);
-          range.setEnd(tn, start + 8);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch {
-          placeCaretEnd(el0);
-        }
-        markDirty();
+        const text = (`INT. LOCATION${snip}`).toUpperCase();
+        exec('blocks.setType', { id, type: 'scene', text }, { label: 'Change to scene' });
+        renderBlocks();
         renderScenes();
+        selectWordInBlock(id, 'LOCATION');
         onBlockFocus(id);
         return;
       }
@@ -1036,8 +1051,7 @@ BLACKOUT.
       if ((b.text || '').trim()) {
         const nb = E.createBlock('scene', snip.toUpperCase().replace(/\s+$/, ' '));
         const idx = indexOfBlock(id);
-        state.project.blocks.splice(idx + 1, 0, nb);
-        markDirty();
+        exec('blocks.insert', { index: idx + 1, block: nb }, { label: 'Insert scene' });
         renderBlocks();
         renderScenes();
         focusBlock(nb.id);
@@ -1051,26 +1065,50 @@ BLACKOUT.
     const block = getBlock(id);
     const el = blockEl(id);
     let cur = readBlockText(el);
+    let nextText;
 
     if (isTimeSuffix) {
       cur = cur.replace(/\s*-\s*(DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|CONTINUOUS|LATER|SAME|AFTERNOON)\s*$/i, '');
-      block.text = (cur.trimEnd() + snip).toUpperCase();
+      nextText = (cur.trimEnd() + snip).toUpperCase();
     } else if (isIntExtPrefix || forceScene) {
       const rest = cur.replace(/^(INT\.?\/EXT\.?|I\/E\.?|E\/I\.?|INT\.?|EXT\.?|EST\.?)\s*/i, '');
-      block.text = (snip + rest).toUpperCase();
+      nextText = (snip + rest).toUpperCase();
     } else {
-      block.text = cur + snip;
+      nextText = cur + snip;
     }
 
     if (block.type === 'scene' || block.type === 'transition' || block.type === 'shot' || block.type === 'character') {
-      block.text = block.text.toUpperCase();
+      nextText = nextText.toUpperCase();
     }
-    setBlockDomText(el, block.text);
+    exec('blocks.setText', { id, text: nextText }, { mergeKey: `block:${id}`, label: 'Insert snippet' });
+    setBlockDomText(el, nextText);
     placeCaretEnd(el);
-    markDirty();
     if (block.type === 'scene') renderScenes();
     refreshStats();
     onBlockFocus(id);
+  }
+
+  function selectWordInBlock(id, word) {
+    const el = blockEl(id);
+    if (!el) return;
+    el.focus();
+    try {
+      const tn = el.firstChild;
+      const text = readBlockText(el);
+      const start = text.indexOf(word);
+      if (tn && start >= 0) {
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(tn, start);
+        range.setEnd(tn, start + word.length);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    placeCaretEnd(el);
   }
 
   function insertFullSceneSlug(slug) {
@@ -1078,57 +1116,25 @@ BLACKOUT.
     const id = state.activeBlockId;
     const b = getBlock(id);
     if (!b) return;
-    if ((b.text || '').trim() && b.type === 'scene') {
-      // new scene after
+    if ((b.text || '').trim()) {
       const nb = E.createBlock('scene', slug);
       const action = E.createBlock('action', '');
       const idx = indexOfBlock(id);
-      state.project.blocks.splice(idx + 1, 0, nb, action);
-      markDirty();
+      exec(
+        'blocks.insertMany',
+        { index: idx + 1, blocks: [nb, action], label: 'Insert scene' },
+        { label: 'Insert scene' }
+      );
       renderBlocks();
       renderScenes();
       focusBlock(nb.id, true);
       return;
     }
-    if ((b.text || '').trim() && b.type !== 'scene') {
-      const nb = E.createBlock('scene', slug);
-      const action = E.createBlock('action', '');
-      const idx = indexOfBlock(id);
-      state.project.blocks.splice(idx + 1, 0, nb, action);
-      markDirty();
-      renderBlocks();
-      renderScenes();
-      focusBlock(nb.id, true);
-      return;
-    }
-    setBlockType(id, 'scene');
-    const el = blockEl(id);
-    const block = getBlock(id);
-    block.text = slug;
-    setBlockDomText(el, slug);
-    // select LOCATION for easy replace
-    el.focus();
-    try {
-      const range = document.createRange();
-      const sel = window.getSelection();
-      const textNode = el.firstChild;
-      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-        const start = slug.indexOf('LOCATION');
-        if (start >= 0) {
-          range.setStart(textNode, start);
-          range.setEnd(textNode, start + 'LOCATION'.length);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } else {
-          placeCaretEnd(el);
-        }
-      }
-    } catch {
-      placeCaretEnd(el);
-    }
-    markDirty();
+    exec('blocks.setType', { id, type: 'scene', text: slug }, { label: 'Change to scene' });
+    renderBlocks();
     renderScenes();
     refreshStats();
+    selectWordInBlock(id, 'LOCATION');
     onBlockFocus(id);
   }
 
@@ -1139,12 +1145,10 @@ BLACKOUT.
     if (!b) return;
 
     if (type === 'character-suffix') {
-      // apply to character line
+      let tid = id;
+      let target = b;
       if (b.type !== 'character') {
-        // previous character?
         const idx = indexOfBlock(id);
-        let target = b;
-        let tid = id;
         for (let i = idx; i >= 0; i--) {
           if (state.project.blocks[i].type === 'character') {
             target = state.project.blocks[i];
@@ -1157,22 +1161,16 @@ BLACKOUT.
           target = getBlock(id);
           tid = id;
         }
-        const el = blockEl(tid);
-        let name = (target.text || '').replace(/\s*\((V\.O\.|O\.S\.|O\.C\.|CONT'D|CONT’D)\)\s*$/i, '').trim();
-        target.text = `${name} ${line}`.toUpperCase();
-        if (el) {
-          setBlockDomText(el, target.text);
-          focusBlock(tid);
-        }
-        markDirty();
-        return;
       }
-      const el = blockEl(id);
-      let name = (b.text || '').replace(/\s*\((V\.O\.|O\.S\.|O\.C\.|CONT'D|CONT’D)\)\s*$/i, '').trim();
-      b.text = `${name} ${line}`.toUpperCase();
-      setBlockDomText(el, b.text);
-      placeCaretEnd(el);
-      markDirty();
+      const name = (target.text || '').replace(/\s*\((V\.O\.|O\.S\.|O\.C\.|CONT'D|CONT’D)\)\s*$/i, '').trim();
+      const nextText = `${name} ${line}`.toUpperCase();
+      exec('blocks.setText', { id: tid, text: nextText }, { mergeKey: `block:${tid}` });
+      const el = blockEl(tid);
+      if (el) {
+        setBlockDomText(el, nextText);
+        focusBlock(tid);
+        placeCaretEnd(el);
+      }
       return;
     }
 
@@ -1180,18 +1178,14 @@ BLACKOUT.
     if ((b.text || '').trim()) {
       const nb = E.createBlock(type === 'transition' ? 'transition' : type, line);
       const idx = indexOfBlock(id);
-      state.project.blocks.splice(idx + 1, 0, nb);
-      markDirty();
+      exec('blocks.insert', { index: idx + 1, block: nb }, { label: 'Insert line' });
       renderBlocks();
       focusBlock(nb.id);
     } else {
-      setBlockType(id, type === 'transition' ? 'transition' : type);
-      const el = blockEl(id);
-      const block = getBlock(id);
-      block.text = line;
-      setBlockDomText(el, line);
-      placeCaretEnd(el);
-      markDirty();
+      const t = type === 'transition' ? 'transition' : type;
+      exec('blocks.setType', { id, type: t, text: line }, { label: `Change to ${t}` });
+      renderBlocks();
+      placeCaretEnd(blockEl(id));
       onBlockFocus(id);
     }
     refreshStats();
@@ -1211,8 +1205,7 @@ BLACKOUT.
     } else {
       return;
     }
-    state.project.blocks.splice(idx + 1, 0, block);
-    markDirty();
+    exec('blocks.insert', { index: idx + 1, block }, { label: 'Insert structure' });
     renderBlocks();
     focusBlock(block.id);
   }
@@ -1246,34 +1239,22 @@ BLACKOUT.
     const id = state.activeBlockId;
     const b = getBlock(id);
     if (!b) return;
-    if ((b.text || '').trim() && b.type === 'character') {
+    if ((b.text || '').trim()) {
       const nb = E.createBlock('character', name);
       const dlg = E.createBlock('dialogue', '');
       const idx = indexOfBlock(id);
-      state.project.blocks.splice(idx + 1, 0, nb, dlg);
-      markDirty();
+      exec(
+        'blocks.insertMany',
+        { index: idx + 1, blocks: [nb, dlg], label: 'Insert character' },
+        { label: 'Insert character' }
+      );
       renderBlocks();
       focusBlock(dlg.id);
       return;
     }
-    if ((b.text || '').trim() && b.type !== 'character') {
-      const nb = E.createBlock('character', name);
-      const dlg = E.createBlock('dialogue', '');
-      const idx = indexOfBlock(id);
-      state.project.blocks.splice(idx + 1, 0, nb, dlg);
-      markDirty();
-      renderBlocks();
-      focusBlock(dlg.id);
-      return;
-    }
-    setBlockType(id, 'character');
-    const el = blockEl(id);
-    const block = getBlock(id);
-    block.text = name;
-    setBlockDomText(el, name);
-    // jump to dialogue
+    exec('blocks.setType', { id, type: 'character', text: name }, { label: 'Change to character' });
+    renderBlocks();
     insertAfter(id);
-    markDirty();
     refreshStats();
   }
 
@@ -1504,8 +1485,12 @@ BLACKOUT.
   function insertSceneAtEnd() {
     const nb = E.createBlock('scene', 'INT. LOCATION - DAY');
     const action = E.createBlock('action', '');
-    state.project.blocks.push(nb, action);
-    markDirty();
+    const index = (state.project.blocks || []).length;
+    exec(
+      'blocks.insertMany',
+      { index, blocks: [nb, action], label: 'Insert scene' },
+      { label: 'Insert scene' }
+    );
     renderBlocks();
     renderScenes();
     setView('script');
@@ -1624,16 +1609,25 @@ BLACKOUT.
         <input class="card-beat" placeholder="Story beat (setup, turn, climax…)" value="${escapeAttr(card.beat || '')}" />
       `;
       el.querySelector('.card-title-input').oninput = (e) => {
-        card.title = e.target.value;
-        markDirty();
+        exec(
+          'cards.update',
+          { id: card.id, patch: { title: e.target.value } },
+          { mergeKey: `card:${card.id}:title`, label: 'Edit card' }
+        );
       };
       el.querySelector('.card-summary').oninput = (e) => {
-        card.summary = e.target.value;
-        markDirty();
+        exec(
+          'cards.update',
+          { id: card.id, patch: { summary: e.target.value } },
+          { mergeKey: `card:${card.id}:summary`, label: 'Edit card' }
+        );
       };
       el.querySelector('.card-beat').oninput = (e) => {
-        card.beat = e.target.value;
-        markDirty();
+        exec(
+          'cards.update',
+          { id: card.id, patch: { beat: e.target.value } },
+          { mergeKey: `card:${card.id}:beat`, label: 'Edit card' }
+        );
       };
       board.appendChild(el);
     });
@@ -1664,16 +1658,19 @@ BLACKOUT.
       `;
       el.querySelectorAll('[data-f]').forEach((input) => {
         input.addEventListener('input', () => {
-          c[input.dataset.f] = input.value;
-          if (input.dataset.f === 'name') {
+          const field = input.dataset.f;
+          exec(
+            'bible.updateCharacter',
+            { id: c.id, patch: { [field]: input.value } },
+            { mergeKey: `char:${c.id}:${field}`, label: 'Edit character' }
+          );
+          if (field === 'name') {
             el.querySelector('strong').textContent = input.value || 'Unnamed';
           }
-          markDirty();
         });
       });
       el.querySelector('.danger-del').onclick = () => {
-        state.project.characters = state.project.characters.filter((x) => x.id !== c.id);
-        markDirty();
+        exec('bible.removeCharacter', { id: c.id }, { label: 'Delete character' });
         renderCharacters();
       };
       root.appendChild(el);
@@ -1705,18 +1702,21 @@ BLACKOUT.
       `;
       el.querySelectorAll('[data-f]').forEach((input) => {
         input.addEventListener('input', () => {
-          if (input.dataset.f === 'times') {
-            loc.times = input.value.split(',').map((s) => s.trim()).filter(Boolean);
-          } else {
-            loc[input.dataset.f] = input.value;
-          }
-          if (input.dataset.f === 'name') el.querySelector('strong').textContent = input.value || 'Unnamed';
-          markDirty();
+          const field = input.dataset.f;
+          const patch =
+            field === 'times'
+              ? { times: input.value.split(',').map((s) => s.trim()).filter(Boolean) }
+              : { [field]: input.value };
+          exec(
+            'bible.updateLocation',
+            { id: loc.id, patch },
+            { mergeKey: `loc:${loc.id}:${field}`, label: 'Edit location' }
+          );
+          if (field === 'name') el.querySelector('strong').textContent = input.value || 'Unnamed';
         });
       });
       el.querySelector('.danger-del').onclick = () => {
-        state.project.locations = state.project.locations.filter((x) => x.id !== loc.id);
-        markDirty();
+        exec('bible.removeLocation', { id: loc.id }, { label: 'Delete location' });
         renderLocations();
       };
       root.appendChild(el);
@@ -1733,13 +1733,20 @@ BLACKOUT.
   }
 
   function syncTitleFromForm() {
-    state.project.titlePage = state.project.titlePage || {};
-    state.project.titlePage.title = $('#tpTitle').value;
-    state.project.titlePage.writtenBy = $('#tpAuthor').value;
-    state.project.titlePage.basedOn = $('#tpBased').value;
-    state.project.titlePage.draftDate = $('#tpDate').value;
-    state.project.titlePage.contact = $('#tpContact').value;
-    markDirty();
+    exec(
+      'meta.setTitlePage',
+      {
+        titlePage: {
+          ...(state.project.titlePage || {}),
+          title: $('#tpTitle').value,
+          writtenBy: $('#tpAuthor').value,
+          basedOn: $('#tpBased').value,
+          draftDate: $('#tpDate').value,
+          contact: $('#tpContact').value,
+        },
+      },
+      { mergeKey: 'meta:title', label: 'Title page' }
+    );
     updateChrome();
   }
 
@@ -1878,9 +1885,11 @@ BLACKOUT.
   function toggleTheme() {
     const next = document.documentElement.classList.contains('theme-light') ? 'dark' : 'light';
     applyTheme(next);
-    state.project.settings = state.project.settings || {};
-    state.project.settings.theme = next;
-    markDirty();
+    exec(
+      'meta.setSettings',
+      { settings: { ...(state.project.settings || {}), theme: next } },
+      { mergeKey: 'meta:settings', label: 'Theme' }
+    );
   }
 
   function applyTheme(theme) {
@@ -1949,8 +1958,12 @@ BLACKOUT.
     const b = state.project.blocks[state.findIndex];
     if (!b) return;
     const re = new RegExp(escapeRegExp(q), 'i');
-    b.text = (b.text || '').replace(re, r);
-    markDirty();
+    const nextText = (b.text || '').replace(re, r);
+    if (nextText === b.text) {
+      findNext();
+      return;
+    }
+    exec('blocks.setText', { id: b.id, text: nextText }, { label: 'Replace' });
     renderBlocks();
     focusBlock(b.id);
     refreshStats();
@@ -1960,18 +1973,27 @@ BLACKOUT.
     const q = els.findInput.value;
     const r = els.replaceInput.value;
     if (!q) return;
+    // Count first (before mutation) so the alert is accurate
     const re = new RegExp(escapeRegExp(q), 'gi');
     let count = 0;
-    state.project.blocks.forEach((b) => {
-      const next = (b.text || '').replace(re, () => {
-        count += 1;
-        return r;
-      });
-      b.text = next;
-    });
-    markDirty();
-    renderBlocks();
-    refreshStats();
+    for (const b of state.project.blocks || []) {
+      const m = (b.text || '').match(re);
+      if (m) count += m.length;
+      re.lastIndex = 0;
+    }
+    if (!count) {
+      alert('No matches.');
+      return;
+    }
+    const result = exec(
+      'blocks.replaceAll',
+      { find: q, replace: r, caseSensitive: false },
+      { label: `Replace all (${count})` }
+    );
+    if (result.ok && !result.noop) {
+      renderBlocks();
+      refreshStats();
+    }
     alert(`Replaced ${count} occurrence(s).`);
   }
 
@@ -2096,51 +2118,8 @@ BLACKOUT.
     }
   }
 
-  /* ---------- utils ---------- */
+  /* ---------- utils (pure helpers live in views/shared/text.js) ---------- */
 
-  function escapeHtml(s) {
-    return String(s ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-  function escapeAttr(s) {
-    return escapeHtml(s).replace(/'/g, '&#39;');
-  }
-
-  /**
-   * Only let a known-good colour reach a style attribute.
-   *
-   * Escaping is the wrong tool inside `style="background:HERE"` — CSS has its own
-   * grammar, and a value like `red;background-image:url(...)` is perfectly valid
-   * HTML while still being an injection. So: whitelist the shapes we actually
-   * write (#rgb / #rrggbb / a plain CSS colour keyword) and reject everything else.
-   * findings.md §5.5.
-   */
-  function safeColor(value, fallback = '#6ea8ff') {
-    if (typeof value !== 'string') return fallback;
-    const v = value.trim();
-    if (/^#[0-9a-f]{3}$/i.test(v) || /^#[0-9a-f]{6}$/i.test(v)) return v;
-    if (/^[a-z]{3,20}$/i.test(v)) return v; // 'black', 'rebeccapurple' — no punctuation, no escape
-    return fallback;
-  }
-  function escapeRegExp(s) {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-  function slugify(s) {
-    return String(s || 'script')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 60) || 'script';
-  }
-  function baseName(p) {
-    return String(p || 'Imported')
-      .split(/[/\\]/)
-      .pop()
-      .replace(/\.[^.]+$/, '');
-  }
   function downloadBlob(text, name, type) {
     const blob = new Blob([text], { type });
     const a = document.createElement('a');
