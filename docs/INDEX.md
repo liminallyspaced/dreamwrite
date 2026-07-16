@@ -15,7 +15,8 @@ workspace — script + Milanote-style board + fictional-calendar timeline.
 |-------|-----|-----------|
 | 1 | [`plan/00-findings.md`](plan/00-findings.md) | Codebase audit. Four load-bearing cracks, with file:line. **Read first.** |
 | 2 | [`plan/01-roadmap.md`](plan/01-roadmap.md) | The phased build plan. Skill routing per phase. |
-| 3 | [`../.claude/CLAUDE.md`](../.claude/CLAUDE.md) | Agent onboarding — non-negotiables, landmines, skill routing |
+| 3 | [`plan/02-handoff.md`](plan/02-handoff.md) | **Handoff — the traps, the order, the open questions.** Read this if picking the work up cold. |
+| 4 | [`../.claude/CLAUDE.md`](../.claude/CLAUDE.md) | Agent onboarding — non-negotiables, landmines, skill routing |
 
 ## Decisions (don't re-litigate)
 
@@ -65,7 +66,6 @@ Phase 5  Complete       templates · clipper · stock          opt-in / online
   (timelines.studio, vvd.world). **Cheapest next step: check the clip's caption/bio link for the handle**,
   not more searching.
 - **Character cue max width, parenthetical right edge** — unsettled across sources (`spec/pagination.md` §8).
-- **Not a git repo.** Worth `git init` before the format-v2 migration (ADR-0004) touches real projects.
 
 ## Corrections already made — read before "fixing" these
 
