@@ -191,6 +191,11 @@ import { createStore } from './core/store/index.js';
       applyElement: (type) => applyElementFromRibbon(type),
       insertSnippet: (snip, opts) => insertSnippet(snip, opts || {}),
       insertLine: (line, type) => insertLineSnippet(line, type || 'transition'),
+      /** Contextual marking menu (ADR-0005 / Phase 2) */
+      getRadialContext: () => ({
+        view: state.view || 'script',
+        elementType: getBlock(state.activeBlockId)?.type || 'action',
+      }),
     };
 
     $('#btnNew').onclick = () => newProject();
@@ -1097,7 +1102,11 @@ import { createStore } from './core/store/index.js';
     highlightSceneForBlock(id);
     syncElementRibbon(b.type);
     const hint = $('#ribbonHint');
-    if (hint) hint.textContent = E.ELEMENT_LABELS[b.type] || b.type;
+    if (hint) {
+      hint.textContent = `${E.ELEMENT_LABELS[b.type] || b.type} · MMB mark/wheel`;
+    }
+    // Rebuild open wheel so slices match the active element type
+    window.PlatenChrome?.rebuildRadial?.();
   }
 
   function syncElementRibbon(type) {

@@ -1,6 +1,17 @@
 /**
- * Platen chrome: expandable rails, focus modes, radial wheel (MMB), typing sounds
+ * Platen chrome: expandable rails, focus modes, radial marking menu (MMB), typing sounds.
+ * Radial rings: views/chrome/radial-rings.js (ADR-0005 / Phase 2).
  */
+import {
+  activeRingItems,
+  angleToIndex,
+  markIndexFromVector,
+  RADIAL_DEAD_ZONE_PX,
+  MARK_MIN_PX,
+  PAN_SLOP_PX,
+  RADIAL_HOLD_MS,
+} from './views/chrome/radial-rings.js';
+
 (() => {
   const app = document.getElementById('app');
   if (!app) return;
@@ -11,30 +22,17 @@
     focus: 'desk', // desk | paper | typewriter
     sound: true,
     radialOpen: false,
-    radialTimer: null,
-    /** -1 = dead-zone / no selection — never default to Scene (findings Crack 4) */
+    /** -1 = dead-zone / no selection — never default to Scene (Crack 4) */
     radialIndex: -1,
+    /** Current ring items (root or submenu) */
+    radialItems: [],
+    /** null | submenu key e.g. 'timeOfDay' */
+    submenuKey: null,
     mmbHeld: false,
     mmbOrigin: null,
     mmbPanning: false,
+    holdTimer: null,
   };
-
-  const RADIAL_ITEMS = [
-    { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
-    { id: 'action', label: 'Action', action: 'element', value: 'action' },
-    { id: 'character', label: 'Char', action: 'element', value: 'character' },
-    { id: 'dialogue', label: 'Dial', action: 'element', value: 'dialogue' },
-    { id: 'parens', label: '( )', action: 'element', value: 'parenthetical' },
-    { id: 'trans', label: 'Trans', action: 'element', value: 'transition' },
-    { id: 'int', label: 'INT.', action: 'snip', value: 'INT. ' },
-    { id: 'ext', label: 'EXT.', action: 'snip', value: 'EXT. ' },
-    { id: 'day', label: 'DAY', action: 'snip', value: ' - DAY' },
-    { id: 'night', label: 'NIGHT', action: 'snip', value: ' - NIGHT' },
-    { id: 'cut', label: 'CUT TO', action: 'line', value: 'CUT TO:', type: 'transition' },
-    { id: 'paper', label: 'Paper', action: 'focus', value: 'paper' },
-    { id: 'type', label: 'Type', action: 'focus', value: 'typewriter' },
-    { id: 'desk', label: 'Desk', action: 'focus', value: 'desk' },
-  ];
 
   // --- Sounds ---
   const audioCache = {};
@@ -99,7 +97,6 @@
     const stage = document.getElementById('typewriterStage');
     if (stage) stage.setAttribute('aria-hidden', next === 'typewriter' ? 'false' : 'true');
 
-    // In paper/typewriter, collapse chrome for immersion (keep slim bar)
     if (next === 'paper' || next === 'typewriter') {
       state.topExpanded = false;
       state.leftExpanded = false;
@@ -110,11 +107,9 @@
       applyRails();
     }
     if (!silent) playSound('mode.wav', 0.28);
-    // After layout settles, keep writing area usable
     requestAnimationFrame(() => {
       const scroll = document.getElementById('editorScroll');
       if (scroll && next === 'typewriter') {
-        // show lower page near platen (where typing feels "in the machine")
         scroll.scrollTop = Math.max(0, scroll.scrollHeight * 0.15);
       }
     });
@@ -127,28 +122,48 @@
     setFocusMode(order[(i + 1) % order.length]);
   }
 
-  // --- Radial ---
+  // --- Radial marking menu ---
+
+  function radialContext() {
+    return (
+      window.PlatenUI?.getRadialContext?.() || {
+        view: 'script',
+        elementType: 'action',
+      }
+    );
+  }
+
+  function loadRingItems() {
+    state.radialItems = activeRingItems(radialContext(), state.submenuKey);
+    return state.radialItems;
+  }
+
   function buildRadial() {
     const ring = document.getElementById('radialRing');
     if (!ring) return;
+    const items = loadRingItems();
     ring.innerHTML = '';
-    const n = RADIAL_ITEMS.length;
+    const n = items.length;
     const R = 118;
-    RADIAL_ITEMS.forEach((item, i) => {
-      const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+    items.forEach((item, i) => {
+      const ang = n ? (i / n) * Math.PI * 2 - Math.PI / 2 : 0;
       const x = Math.cos(ang) * R;
       const y = Math.sin(ang) * R;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'radial-item';
       btn.dataset.index = String(i);
+      btn.dataset.id = item.id;
       btn.style.transform = `translate(${x}px, ${y}px)`;
       btn.innerHTML = `<span>${item.label}</span>`;
       btn.addEventListener('pointerup', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        activateRadial(i);
-        closeRadial();
+        activateRadialItem(item);
+        // Submenus keep the wheel open; everything else closes
+        if (item.action !== 'submenu' && item.action !== 'submenu-back') {
+          closeRadial({ apply: false });
+        }
       });
       btn.addEventListener('pointerenter', () => highlightRadial(i));
       ring.appendChild(btn);
@@ -161,11 +176,14 @@
       el.classList.remove('hot');
     });
     const center = document.getElementById('radialCenter');
-    if (center) center.textContent = '·';
+    if (center) {
+      center.textContent = state.submenuKey ? '◂' : '·';
+    }
   }
 
   function highlightRadial(i) {
-    if (i < 0 || i >= RADIAL_ITEMS.length) {
+    const items = state.radialItems;
+    if (i < 0 || i >= items.length) {
       clearRadialHighlight();
       return;
     }
@@ -174,49 +192,108 @@
       el.classList.toggle('hot', idx === i);
     });
     const center = document.getElementById('radialCenter');
-    if (center && RADIAL_ITEMS[i]) center.textContent = RADIAL_ITEMS[i].label;
+    if (center && items[i]) center.textContent = items[i].label;
   }
 
   function openRadial(clientX, clientY) {
     const radial = document.getElementById('radial');
     if (!radial) return;
+    state.submenuKey = null;
+    buildRadial();
     state.radialOpen = true;
     radial.classList.add('open');
     radial.setAttribute('aria-hidden', 'false');
     radial.style.left = `${clientX}px`;
     radial.style.top = `${clientY}px`;
-    // Dead-zone start: dismissing without aiming must not apply Scene (index 0).
     clearRadialHighlight();
     playSound('radial.wav', 0.3);
+  }
+
+  function openSubmenu(key) {
+    state.submenuKey = key;
+    buildRadial();
+    clearRadialHighlight();
+    playSound('radial.wav', 0.15);
   }
 
   function closeRadial({ apply = false } = {}) {
     const radial = document.getElementById('radial');
     if (!radial) return;
     if (apply && state.radialIndex >= 0) {
-      activateRadial(state.radialIndex);
+      const item = state.radialItems[state.radialIndex];
+      if (item) activateRadialItem(item);
     }
     state.radialOpen = false;
+    state.submenuKey = null;
     radial.classList.remove('open');
     radial.setAttribute('aria-hidden', 'true');
     clearRadialHighlight();
   }
 
-  function activateRadial(i) {
-    const item = RADIAL_ITEMS[i];
+  function activateRadialItem(item) {
     if (!item) return;
+    if (item.action === 'submenu' && item.value) {
+      openSubmenu(item.value);
+      return;
+    }
+    if (item.action === 'submenu-back') {
+      state.submenuKey = null;
+      buildRadial();
+      clearRadialHighlight();
+      playSound('radial.wav', 0.12);
+      return;
+    }
+    if (item.action === 'noop') {
+      // Board/timeline stubs — no document mutation
+      return;
+    }
+
     const api = window.PlatenUI;
-    if (item.action === 'element' && api?.applyElement) api.applyElement(item.value);
-    else if (item.action === 'snip' && api?.insertSnippet) api.insertSnippet(item.value, { forceScene: /INT\.|EXT\./.test(item.value) });
-    else if (item.action === 'line' && api?.insertLine) api.insertLine(item.value, item.type || 'transition');
-    else if (item.action === 'focus') setFocusMode(item.value);
+    if (item.action === 'element' && api?.applyElement) {
+      api.applyElement(item.value);
+    } else if (item.action === 'snip' && api?.insertSnippet) {
+      api.insertSnippet(item.value, {
+        forceScene: !!item.forceScene || /INT\.|EXT\./.test(item.value || ''),
+      });
+    } else if (item.action === 'line' && api?.insertLine) {
+      api.insertLine(item.value, item.type || 'transition');
+    } else if (item.action === 'focus') {
+      setFocusMode(item.value);
+    }
+  }
+
+  /** Expert mark: flick without drawing the wheel */
+  function tryExpertMark(clientX, clientY) {
+    if (!state.mmbOrigin) return false;
+    const dx = clientX - state.mmbOrigin.x;
+    const dy = clientY - state.mmbOrigin.y;
+    const items = activeRingItems(radialContext(), null);
+    const idx = markIndexFromVector(dx, dy, items.length, MARK_MIN_PX);
+    if (idx < 0) return false;
+    const item = items[idx];
+    if (!item || item.action === 'submenu' || item.action === 'submenu-back') {
+      // Expert marks skip submenu entries (ambiguous without UI)
+      return false;
+    }
+    activateRadialItem(item);
+    playSound('radial.wav', 0.2);
+    return true;
+  }
+
+  function updateHint() {
+    const hint = document.getElementById('ribbonHint');
+    if (hint) {
+      hint.textContent = 'MMB: hold for wheel · flick to mark · drag to pan';
+    }
+    const mmb = document.getElementById('mmbHint');
+    if (mmb) mmb.textContent = 'MMB · mark / wheel / pan';
   }
 
   // --- Wire ---
   function init() {
-    buildRadial();
     applyRails();
     setFocusMode('desk', { silent: true });
+    updateHint();
 
     document.getElementById('btnToggleTop')?.addEventListener('click', () => {
       state.topExpanded = !state.topExpanded;
@@ -244,7 +321,6 @@
       });
     }
 
-    // Typing sounds on editor
     document.addEventListener(
       'keydown',
       (e) => {
@@ -258,43 +334,49 @@
       true
     );
 
-    // Middle mouse: radial (hold) vs pan intent (move before timer) — ADR-0005
-    let holdTimer = null;
-    const PAN_SLOP_PX = 6;
-    const RADIAL_DEAD_ZONE = 36;
-
+    // MMB: mark (flick) · wheel (hold) · pan (drag) — ADR-0005
     document.addEventListener('pointerdown', (e) => {
-      if (e.button !== 1) return; // middle
+      if (e.button !== 1) return;
       e.preventDefault();
       state.mmbHeld = true;
       state.mmbPanning = false;
       state.mmbOrigin = { x: e.clientX, y: e.clientY };
-      const x = e.clientX;
-      const y = e.clientY;
-      holdTimer = setTimeout(() => {
-        if (state.mmbHeld && !state.mmbPanning) openRadial(x, y);
-      }, 140);
+      const ox = e.clientX;
+      const oy = e.clientY;
+      clearTimeout(state.holdTimer);
+      state.holdTimer = setTimeout(() => {
+        if (state.mmbHeld && !state.mmbPanning) openRadial(ox, oy);
+      }, RADIAL_HOLD_MS);
     });
+
     document.addEventListener('pointerup', (e) => {
-      if (e.button === 1 || state.mmbHeld) {
-        state.mmbHeld = false;
-        clearTimeout(holdTimer);
-        // Release-to-select when the wheel is open (Phase 2): apply only if aimed
-        if (state.radialOpen) {
-          closeRadial({ apply: state.radialIndex >= 0 });
-        }
-        state.mmbOrigin = null;
-        state.mmbPanning = false;
+      if (e.button !== 1 && !state.mmbHeld) return;
+      const wasHeld = state.mmbHeld;
+      const wasPanning = state.mmbPanning;
+      const origin = state.mmbOrigin;
+      const radialWasOpen = state.radialOpen;
+      state.mmbHeld = false;
+      clearTimeout(state.holdTimer);
+
+      if (radialWasOpen) {
+        // Release-to-select: apply only if aimed outside dead-zone
+        closeRadial({ apply: state.radialIndex >= 0 });
+      } else if (wasHeld && !wasPanning && origin) {
+        // Expert mark: released before hold timer, long enough flick
+        tryExpertMark(e.clientX, e.clientY);
       }
+
+      state.mmbOrigin = null;
+      state.mmbPanning = false;
     });
+
     document.addEventListener('pointermove', (e) => {
-      // Cancel radial timer if user starts panning before it fires
       if (state.mmbHeld && !state.radialOpen && state.mmbOrigin && !state.mmbPanning) {
         const dx0 = e.clientX - state.mmbOrigin.x;
         const dy0 = e.clientY - state.mmbOrigin.y;
         if (Math.hypot(dx0, dy0) > PAN_SLOP_PX) {
           state.mmbPanning = true;
-          clearTimeout(holdTimer);
+          clearTimeout(state.holdTimer);
         }
       }
       if (!state.radialOpen) return;
@@ -306,42 +388,48 @@
       const dx = e.clientX - cx;
       const dy = e.clientY - cy;
       const dist = Math.hypot(dx, dy);
-      // Centre dead-zone: no selection — dismiss must not mutate the document
-      if (dist < RADIAL_DEAD_ZONE) {
+      if (dist < RADIAL_DEAD_ZONE_PX) {
         clearRadialHighlight();
         return;
       }
-      let ang = Math.atan2(dy, dx) + Math.PI / 2;
-      if (ang < 0) ang += Math.PI * 2;
-      const n = RADIAL_ITEMS.length;
-      const idx = Math.round((ang / (Math.PI * 2)) * n) % n;
-      highlightRadial(idx);
+      const n = state.radialItems.length;
+      highlightRadial(angleToIndex(dx, dy, n));
     });
+
     document.addEventListener('auxclick', (e) => {
-      if (e.button === 1) e.preventDefault(); // stop auto-scroll
+      if (e.button === 1) e.preventDefault();
     });
+
     document.addEventListener('click', (e) => {
       if (!state.radialOpen) return;
       const radial = document.getElementById('radial');
       if (radial && !radial.contains(e.target)) {
-        // Outside click: apply only if an item is hot (never default Scene)
-        closeRadial({ apply: state.radialIndex >= 0 });
+        closeRadial({ apply: false });
       }
     });
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && state.radialOpen) {
-        closeRadial({ apply: false });
+        if (state.submenuKey) {
+          state.submenuKey = null;
+          buildRadial();
+          clearRadialHighlight();
+        } else {
+          closeRadial({ apply: false });
+        }
         e.preventDefault();
       }
     });
 
-    // Expose for app.js
     window.PlatenChrome = {
       setFocusMode,
       cycleFocus,
       playSound,
       isSoundOn: () => state.sound,
       getFocus: () => state.focus,
+      rebuildRadial: () => {
+        if (state.radialOpen) buildRadial();
+      },
       expandChrome: () => {
         state.topExpanded = true;
         state.leftExpanded = true;

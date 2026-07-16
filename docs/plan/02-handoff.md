@@ -38,10 +38,10 @@ Baseline is `f987d17` — the app exactly as inherited. Everything since is diff
 - **Store migration** — document mutations via `exec()`; bible/cards/meta/insertMany.
 - **app.js leaves** — `views/shared/text.js`, `views/script/page-layout.js`,
   `core/project/{document,sample}.js`.
-- **Wheel fix (Phase 2 start)** — dead-zone `radialIndex = -1`; dismiss no longer
-  silently applies Scene; release-to-select; MMB pan slop cancels radial timer (ADR-0005).
+- **Wheel (Phase 2)** — marking menu: ≤8 contextual rings, submenus, expert marks,
+  dead-zone cancel, release-to-select, MMB pan slop (`views/chrome/radial-rings.js`).
 
-**Not done:** rest of app.js split, full wheel redesign (≤8 items, contextual), timeline/board.
+**Not done:** rest of app.js split, WebAudio key pool, timeline/board.
 
 ---
 
@@ -73,10 +73,12 @@ or continue Phase 2 wheel redesign.
 
 ### 4. Multi-page editor stack ← DONE (first-appearance assignment)
 
-### 5. The wheel (Phase 2) ← STARTED (silent-apply + dead-zone + MMB pan slop)
+### 5. The wheel (Phase 2) ← MOSTLY DONE
 
-Still open from roadmap: ≤8 items/ring, contextual payload, marks/novice→expert,
-submenu, WebAudio pool. **Do not reintroduce default index 0.**
+Landed: dead-zone cancel · release-to-select · MMB pan slop · **≤8 items/ring** ·
+**contextual rings** (`views/chrome/radial-rings.js`) · one-level **submenus** ·
+**expert marks** (flick before 140ms). PlatenUI.getRadialContext() feeds element type.
+Still open: WebAudio pool for key sounds; board/timeline ring actions (stubs).
 
 ### 6. Timeline (Phase 3) → 7. Board (Phase 4) → 8. Completeness (Phase 5)
 
