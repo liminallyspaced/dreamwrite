@@ -28,31 +28,28 @@ Baseline is `f987d17` — the app exactly as inherited. Everything since is diff
 
 **74 unit tests + 15 smoke checks**, from zero. `npm run test:all`.
 
-**Not done:** everything else. Next up is `core/store/` + the command stack.
+**Also done (2026-07-16, `5f85643`):**
+- **`core/store/` + command stack** — pure history/commands/mutations; typing merge;
+  undo/redo via menu and Ctrl+Z/Y; revision restore is one undoable command.
+  Design: `docs/architecture/store-design.md`. 88 unit tests; smoke 3× green.
+
+**Not done:** pagination (ADR-0006), rest of app.js split, wheel/timeline/board.
 
 ---
 
 ## Do these in this order
 
-### 1. `core/store/` + the command stack ← START HERE
+### 1. `core/store/` + the command stack ← DONE (`5f85643`)
 
-The keystone. Three things depend on it and none can start without it:
+Landed. Design: `docs/architecture/store-design.md`.
 
-- **Undo.** There is still no undo stack anywhere. `main.js:93` wires Chromium's `{role:'undo'}`, which
-  only undoes typing inside the focused contenteditable — and `renderBlocks` does `root.innerHTML = ''`
-  on every Enter/Backspace/type-change, so **even that history is wiped whenever you press Enter.**
-  Every structural edit is permanently un-undoable.
-- **The `app.js` split.** See the trap below — it isn't mechanical without a store.
-- **The board and timeline.** A canvas without undo is unusable. Retrofitting a command stack *after*
-  two canvas surfaces exist means rewriting every mutation in all of them.
+- Every *wired* mutation goes through `store.execute` / `invert`.
+- Menu + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z own undo/redo (Chromium `{role:undo}` removed).
+- Revision restore is one undoable command.
+- **Still:** snippets/bible/etc. use `markDirty` (may clear undo if project identity diverges).
+  Prefer `exec()` for every new path. Rename-propagation (ADR-0003) still future.
 
-Design notes:
-- Every mutation goes through `store/commands.js`. Un-wire `{role:'undo'}` and own it.
-- Revision *restore* is currently stopgapped (it snapshots before overwriting). It should become **one
-  undoable command**, not a snapshot side-effect.
-- Rename-propagation across three views (ADR-0003) must be **one atomic undoable command**.
-
-### 2. Pagination — the product fix
+### 2. Pagination — the product fix ← START HERE
 
 `docs/spec/pagination.md` is complete and source-cited, including a ready-to-type constants object (§6).
 The bug: three independent notions of "page," none the industry's (ADR-0006). The fix is **one**
