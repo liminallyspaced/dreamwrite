@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self' data:;" />
+  <title>Platen</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="../assets/icon-32.png" />
+</head>
+<body>
+  <div id="app" class="top-expanded left-expanded focus-desk">
+    <!-- TOP RAIL: collapses to slim strip, expands for tools -->
+    <header id="topRail" class="rail-top">
+      <div class="rail-top-slim">
+        <button type="button" class="rail-toggle" id="btnToggleTop" title="Expand / collapse tools">▾</button>
+        <div class="brand compact">
+          <div class="brand-mark"><img src="../assets/brand-mark.png" alt="" /></div>
+          <span class="brand-name">Platen</span>
+        </div>
+        <div class="slim-actions">
+          <button class="ghost" id="btnNew" title="New">New</button>
+          <button class="ghost" id="btnOpen" title="Open">Open</button>
+          <button class="ghost" id="btnSave" title="Save">Save</button>
+          <button class="ghost" id="btnExportPdf" title="PDF">PDF</button>
+        </div>
+        <div class="project-title slim">
+          <span class="dirty-dot" id="dirtyDot"></span>
+          <span id="projectTitleLabel">Untitled Screenplay</span>
+        </div>
+        <div class="focus-mode-group" title="Writing focus">
+          <button type="button" class="mode-pill active" data-focus="desk" title="Desk — full chrome">Desk</button>
+          <button type="button" class="mode-pill" data-focus="paper" title="Paper focus — no typewriter">Paper</button>
+          <button type="button" class="mode-pill" data-focus="typewriter" title="Typewriter focus">Typewriter</button>
+        </div>
+        <button class="ghost" id="btnHelp" title="Help">?</button>
+      </div>
+
+      <div class="rail-top-panel">
+        <div class="panel-row file-row">
+          <button class="ghost" id="btnImport" title="Import Fountain">Import</button>
+          <div class="tb-sep"></div>
+          <div class="tb-group nav-views">
+            <button class="ghost view-btn active" data-view="script">Script</button>
+            <button class="ghost view-btn" data-view="cards">Cards</button>
+            <button class="ghost view-btn" data-view="characters">Cast</button>
+            <button class="ghost view-btn" data-view="locations">Locations</button>
+            <button class="ghost view-btn" data-view="title">Title</button>
+            <button class="ghost view-btn" data-view="notes">Notes</button>
+          </div>
+          <div class="tb-grow"></div>
+          <button class="ghost" id="btnFind" title="Find">Find</button>
+          <button class="ghost" id="btnTheme" title="Paper / night">Paper</button>
+          <button class="ghost" id="btnSound" title="Toggle typing sounds">Sound</button>
+        </div>
+
+        <div id="formatRibbon" class="ribbon" role="toolbar" aria-label="Element format">
+          <div class="ribbon-group">
+            <button type="button" class="el-btn" data-element="scene" title="Scene (Ctrl+1)"><span class="el-lab">Scene</span></button>
+            <button type="button" class="el-btn" data-element="action" title="Action (Ctrl+2)"><span class="el-lab">Action</span></button>
+            <button type="button" class="el-btn" data-element="character" title="Character (Ctrl+3)"><span class="el-lab">Character</span></button>
+            <button type="button" class="el-btn" data-element="parenthetical" title="Parens (Ctrl+4)"><span class="el-lab">Parens</span></button>
+            <button type="button" class="el-btn" data-element="dialogue" title="Dialogue (Ctrl+5)"><span class="el-lab">Dialogue</span></button>
+            <button type="button" class="el-btn" data-element="transition" title="Transition (Ctrl+6)"><span class="el-lab">Transition</span></button>
+            <button type="button" class="el-btn" data-element="shot" title="Shot (Ctrl+7)"><span class="el-lab">Shot</span></button>
+            <button type="button" class="el-btn" data-element="general" title="Text"><span class="el-lab">Text</span></button>
+            <button type="button" class="el-btn" data-element="note" title="Note"><span class="el-lab">Note</span></button>
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <button type="button" class="el-btn struct-btn" data-insert-block="act-start"><span class="el-lab">New Act</span></button>
+            <button type="button" class="el-btn struct-btn" data-insert-block="act-end"><span class="el-lab">End Act</span></button>
+            <button type="button" class="el-btn struct-btn" data-insert-block="dual"><span class="el-lab">Dual</span></button>
+          </div>
+          <div class="ribbon-grow"></div>
+          <div class="ribbon-hint" id="ribbonHint">Hold middle-mouse for radial tools</div>
+        </div>
+
+        <div id="snippetRibbon" class="snippet-bar" role="toolbar">
+          <span class="snip-label">Insert</span>
+          <button type="button" class="snip-btn" data-snip="INT. ">INT.</button>
+          <button type="button" class="snip-btn" data-snip="EXT. ">EXT.</button>
+          <button type="button" class="snip-btn" data-snip="I/E. ">I/E.</button>
+          <button type="button" class="snip-btn" data-snip="EST. ">EST.</button>
+          <span class="snip-dot"></span>
+          <button type="button" class="snip-btn" data-snip=" - DAY">DAY</button>
+          <button type="button" class="snip-btn" data-snip=" - NIGHT">NIGHT</button>
+          <button type="button" class="snip-btn" data-snip=" - DAWN">DAWN</button>
+          <button type="button" class="snip-btn" data-snip=" - DUSK">DUSK</button>
+          <button type="button" class="snip-btn" data-snip=" - CONTINUOUS">CONT.</button>
+          <button type="button" class="snip-btn" data-snip=" - LATER">LATER</button>
+          <button type="button" class="snip-btn" data-snip=" - SAME">SAME</button>
+          <span class="snip-dot"></span>
+          <button type="button" class="snip-btn accent" data-snip-scene="INT. LOCATION - DAY">INT·DAY</button>
+          <button type="button" class="snip-btn accent" data-snip-scene="EXT. LOCATION - NIGHT">EXT·NIGHT</button>
+          <span class="snip-dot"></span>
+          <button type="button" class="snip-btn" data-snip-line="FADE IN:" data-type="transition">FADE IN:</button>
+          <button type="button" class="snip-btn" data-snip-line="CUT TO:" data-type="transition">CUT TO:</button>
+          <button type="button" class="snip-btn" data-snip-line="FADE OUT." data-type="transition">FADE OUT.</button>
+          <button type="button" class="snip-btn" data-snip-line="SMASH CUT TO:" data-type="transition">SMASH</button>
+          <button type="button" class="snip-btn" data-snip-line="DISSOLVE TO:" data-type="transition">DISSOLVE</button>
+          <button type="button" class="snip-btn" data-snip-line="BLACKOUT." data-type="transition">BLACKOUT</button>
+          <span class="snip-dot"></span>
+          <button type="button" class="snip-btn" data-snip-line="(V.O.)" data-type="character-suffix">V.O.</button>
+          <button type="button" class="snip-btn" data-snip-line="(O.S.)" data-type="character-suffix">O.S.</button>
+          <button type="button" class="snip-btn" data-snip-line="(CONT'D)" data-type="character-suffix">CONT'D</button>
+          <div class="snip-grow"></div>
+          <div class="snip-cast" id="snipCast"></div>
+        </div>
+      </div>
+    </header>
+
+    <div id="findBar">
+      <input id="findInput" placeholder="Find…" />
+      <input id="replaceInput" placeholder="Replace…" />
+      <button id="btnFindNext">Next</button>
+      <button id="btnReplace">Replace</button>
+      <button id="btnReplaceAll">All</button>
+      <button class="ghost" id="btnFindClose">Close</button>
+    </div>
+
+    <div id="workspace">
+      <!-- LEFT RAIL: expands for scenes -->
+      <aside id="leftRail" class="rail-left panel">
+        <button type="button" class="rail-toggle vertical" id="btnToggleLeft" title="Expand / collapse scenes">›</button>
+        <div class="left-rail-body">
+          <div class="panel-header">
+            <span>Scenes</span>
+            <button class="ghost" id="btnAddScene" title="Add scene">+</button>
+          </div>
+          <div class="panel-body" id="sceneList"></div>
+          <div class="panel-footer-docs">
+            <button class="ghost doc-link" data-view="title">Title Page</button>
+            <button class="ghost doc-link" data-view="notes">Notes</button>
+            <button class="ghost" id="btnExportFountain">Export Fountain</button>
+          </div>
+        </div>
+      </aside>
+
+      <main id="main">
+        <section class="view active" id="view-script">
+          <div class="stage" id="stage">
+            <!-- Paper / script surface -->
+            <div class="editor-scroll" id="editorScroll">
+              <div class="page-stack" id="pageStack">
+                <div class="page" id="page">
+                  <div class="page-edge" aria-hidden="true"></div>
+                  <div class="page-ink" aria-hidden="true"></div>
+                  <div class="page-number" id="pageNumber">1.</div>
+                  <div class="blocks" id="blocks"></div>
+                </div>
+              </div>
+            </div>
+            <!-- Full typewriter machine — paper seats into platen (typewriter focus only) -->
+            <div id="typewriterStage" class="typewriter-stage" aria-hidden="true">
+              <div class="tw-vignette" aria-hidden="true"></div>
+              <div class="tw-machine">
+                <img
+                  class="tw-img"
+                  src="../assets/typewriter-full.png"
+                  alt="Typewriter"
+                  draggable="false"
+                  onerror="this.src='../assets/typewriter-full.jpg'"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-cards">
+          <div class="cards-toolbar">
+            <strong class="section-kicker">Beat cards</strong>
+            <span class="muted">Outline</span>
+            <div style="flex:1"></div>
+            <button id="btnSyncCards">Sync from scenes</button>
+            <button id="btnAddCard">Add card</button>
+          </div>
+          <div class="cards-board" id="cardsBoard"></div>
+        </section>
+
+        <section class="view" id="view-characters">
+          <div class="form-view">
+            <div class="form-card">
+              <h2>Character Bible</h2>
+              <div class="list-tools">
+                <button id="btnScanChars">Scan script</button>
+                <button class="primary" id="btnAddChar">Add character</button>
+              </div>
+              <div id="charList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-locations">
+          <div class="form-view">
+            <div class="form-card">
+              <h2>Locations</h2>
+              <div class="list-tools">
+                <button id="btnScanLocs">Scan script</button>
+                <button class="primary" id="btnAddLoc">Add location</button>
+              </div>
+              <div id="locList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-title">
+          <div class="form-view">
+            <div class="form-card">
+              <h2>Title Page</h2>
+              <div class="form-row"><label>Title</label><input id="tpTitle" /></div>
+              <div class="form-row"><label>Written by</label><input id="tpAuthor" /></div>
+              <div class="form-row"><label>Based on</label><input id="tpBased" /></div>
+              <div class="form-row"><label>Draft date</label><input id="tpDate" /></div>
+              <div class="form-row"><label>Contact</label><textarea id="tpContact" rows="4"></textarea></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-notes">
+          <div class="form-view">
+            <div class="form-card">
+              <h2>Project Notes</h2>
+              <textarea id="notesArea" rows="18" placeholder="Beats, research, notes…"></textarea>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside id="rightbar" class="panel rail-right">
+        <div class="panel-header"><span>Stats</span></div>
+        <div class="panel-body">
+          <div class="stat-grid">
+            <div class="stat-card"><div class="stat-val" id="stPages">1</div><div class="stat-label">Pages</div></div>
+            <div class="stat-card"><div class="stat-val" id="stRuntime">1m</div><div class="stat-label">Runtime</div></div>
+            <div class="stat-card"><div class="stat-val" id="stScenes">0</div><div class="stat-label">Scenes</div></div>
+            <div class="stat-card"><div class="stat-val" id="stWords">0</div><div class="stat-label">Words</div></div>
+            <div class="stat-card"><div class="stat-val" id="stChars">0</div><div class="stat-label">Characters</div></div>
+            <div class="stat-card"><div class="stat-val" id="stDlg">0%</div><div class="stat-label">Dialogue</div></div>
+          </div>
+          <div class="panel-header" style="padding:8px 0;border:none"><span>Export</span></div>
+          <div style="display:grid;gap:8px">
+            <button id="btnExportFountain2">Export Fountain</button>
+            <button id="btnExportPdf2">Export PDF</button>
+            <button id="btnSnapshot">Revision snapshot</button>
+          </div>
+          <div class="panel-header" style="padding:16px 0 8px;border:none"><span>Format check</span></div>
+          <div id="lintList"></div>
+          <div class="panel-header" style="padding:8px 0;border:none"><span>Revisions</span></div>
+          <div id="historyList"></div>
+        </div>
+      </aside>
+    </div>
+
+    <footer id="statusbar">
+      <span id="statusPath">No file · local autosave</span>
+      <span class="grow"></span>
+      <span class="pill" id="statusElement">Action</span>
+      <span id="statusCounts">1p</span>
+      <span class="pill" id="mmbHint">MMB hold · radial</span>
+    </footer>
+  </div>
+
+  <!-- Radial wheel (middle-mouse hold) -->
+  <div id="radial" class="radial" aria-hidden="true">
+    <div class="radial-ring" id="radialRing"></div>
+    <div class="radial-center" id="radialCenter">Platen</div>
+  </div>
+
+  <div id="elementBadge"><strong id="badgeType">Action</strong> · Tab · Enter · MMB radial</div>
+  <div id="ac"></div>
+
+  <select id="elementSelect" hidden>
+    <option value="scene">Scene</option>
+    <option value="action">Action</option>
+    <option value="character">Character</option>
+    <option value="parenthetical">Parenthetical</option>
+    <option value="dialogue">Dialogue</option>
+    <option value="transition">Transition</option>
+    <option value="shot">Shot</option>
+    <option value="general">General</option>
+  </select>
+
+  <!-- legacy ids used by app -->
+  <button id="btnFocus" hidden></button>
+  <button id="btnTypewriter" hidden></button>
+  <button id="btnExitTypewriter" hidden></button>
+  <div id="platenDeck" hidden></div>
+  <div id="typebars" hidden></div>
+
+  <div id="welcome">
+    <div class="welcome-card">
+      <div class="welcome-logo"><img src="../assets/icon-256.png" alt="Platen" /></div>
+      <h1>Platen</h1>
+      <p>
+        Expandable tool rails. Desk / Paper / Typewriter focus.
+        Hold <strong>middle mouse</strong> for the radial tool wheel.
+        Courier Prime · paper grain · ink edge · optional key sounds.
+      </p>
+      <div class="welcome-actions">
+        <button class="primary" id="welcomeNew">New screenplay</button>
+        <button id="welcomeOpen">Open project</button>
+        <button id="welcomeImport">Import Fountain</button>
+        <button class="ghost" id="welcomeSample">Load sample</button>
+      </div>
+      <div class="feature-grid">
+        <div><strong>Desk / Paper / Typewriter</strong>Three focus modes with motion</div>
+        <div><strong>Radial wheel</strong>Hold middle-mouse for INT/EXT &amp; styles</div>
+        <div><strong>Expand rails</strong>Top tools &amp; scene list collapse cleanly</div>
+        <div><strong>Industry format</strong>Courier Prime · 1.5″ left · lint</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="helpModal">
+    <div class="modal">
+      <header>
+        <h3>Platen controls</h3>
+        <button class="ghost" id="helpClose">Close</button>
+      </header>
+      <div class="content">
+        <table>
+          <tr><td>Desk / Paper / Typewriter</td><td>Focus modes (top right)</td></tr>
+          <tr><td>▾ / › rail toggles</td><td>Expand or collapse top / left</td></tr>
+          <tr><td><kbd>Middle-mouse hold</kbd></td><td>Radial tool wheel</td></tr>
+          <tr><td><kbd>Tab</kbd> / <kbd>Enter</kbd></td><td>Cycle element / next line</td></tr>
+          <tr><td><kbd>Ctrl+1…7</kbd></td><td>Element styles</td></tr>
+          <tr><td><kbd>F11</kbd></td><td>Cycle focus modes</td></tr>
+          <tr><td>Sound</td><td>Toggle typewriter key clicks</td></tr>
+        </table>
+        <p style="margin-top:12px">US film format: Courier 12 · Letter · left 1.5″ · scene INT./EXT. LOCATION - DAY.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="engine.js"></script>
+  <script src="ui-chrome.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
