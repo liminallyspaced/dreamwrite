@@ -71,6 +71,42 @@ src/
 
 ---
 
+### Phase 0 — status (2026-07-16)
+
+**Done:**
+- ✅ esbuild (`build.js`, ~20ms) + vitest + jsdom. `npm run dev` watches; `npm run test:all` runs both suites.
+- ✅ `engine.js` → ESM. Logic untouched; only the `window.ScriptEngine` tail changed.
+  `engine-global.js` is a **temporary shim** — delete it when `app.js` imports the engine directly.
+- ✅ 16 **characterization** tests pinning current engine behaviour, bugs included and tagged `BUG:`.
+- ✅ Deleted `styles.legacy.css` (1,473 lines, verified unreferenced).
+- ✅ Extracted `views/script/block-dom.js` (6 leaf functions) + 15 jsdom tests. app.js 1,939 → 1,869.
+- ✅ **`tests/smoke/smoke.js`** — drives the real app over CDP. 10 checks.
+
+**⚠️ Amendment to this plan — the app.js split is NOT "mechanical"**
+
+This phase originally said *"Split app.js into modules — mechanical, behaviour-preserving, no logic
+changes."* Having done the first slice, that's only true of the **leaf functions**. The remaining ~64
+functions close over a shared `state` and `els` object that every one of them reaches into. Splitting
+those is a **design decision** (how is state shared — a store? DI? module singleton?), not a move.
+
+And doing it blind is exactly the big-bang refactor Phase 0 exists to prevent: `app.js` still has **no
+test coverage of its own**.
+
+**So the order is:**
+1. ✅ Smoke test first (done — it caught nothing yet, but it's the net)
+2. Build `core/store/` **in Phase 1** — the command/undo stack already requires a real store (ADR-0001)
+3. Split `app.js` **against that store**, one section at a time, smoke-verified per slice
+
+**Splitting app.js is therefore folded into Phase 1, not a prerequisite for it.** The store is the
+thing that makes the split mechanical; building the store first is cheaper than inventing a temporary
+state-sharing scheme and then replacing it.
+
+**Why the smoke test is non-negotiable:** the unit suite AND "Electron boots with no console errors"
+both pass while the editor is completely broken — booting only renders the welcome screen. Every crack
+in `00-findings.md` would have survived a green unit suite.
+
+---
+
 ## Phase 1 — Trust ★
 
 *Goal: the number on screen is the number in the PDF is the number the industry means — and the app stops eating work.*
