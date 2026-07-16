@@ -8,6 +8,7 @@ import {
   placeholderFor,
 } from './views/script/block-dom.js';
 import { writeAutosave, readAutosave } from './core/persist/autosave.js';
+import { createStore } from './core/store/index.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -30,6 +31,85 @@ import { writeAutosave, readAutosave } from './core/persist/autosave.js';
     autosaveTimer: null,
     suppressDirty: false,
   };
+
+  // Document mutations go through the store (docs/architecture/store-design.md).
+  // Session fields (view, activeBlockId) still live on `state` until the full split.
+  const store = createStore({
+    project: state.project,
+    session: {
+      filePath: null,
+      dirty: false,
+      activeBlockId: null,
+      view: 'script',
+    },
+  });
+
+  function pullFromStore() {
+    const s = store.getState();
+    state.project = s.project;
+    state.dirty = s.session.dirty;
+    state.filePath = s.session.filePath;
+  }
+
+  /**
+   * Execute a document command. Updates state.project from the store.
+   * Does not re-render — callers decide.
+   */
+  function exec(type, payload, opts = {}) {
+    const r = store.execute({
+      type,
+      payload,
+      label: opts.label,
+      mergeKey: opts.mergeKey,
+    });
+    if (r.ok && !r.noop) {
+      pullFromStore();
+      if (!state.suppressDirty) {
+        updateChrome();
+        scheduleAutosave();
+      }
+    }
+    return r;
+  }
+
+  function flushBlockText(id, textEl) {
+    const el = textEl || blockEl(id);
+    if (!el) return;
+    const text = readBlockText(el);
+    const b = getBlock(id);
+    if (!b || b.text === text) return;
+    exec('blocks.setText', { id, text }, { mergeKey: `block:${id}` });
+  }
+
+  function performUndo() {
+    const r = store.undo();
+    if (!r.ok) return;
+    pullFromStore();
+    // Active block may have been removed
+    if (state.activeBlockId && !getBlock(state.activeBlockId)) {
+      state.activeBlockId = state.project.blocks[0]?.id || null;
+    }
+    renderBlocks();
+    renderScenes();
+    refreshStats();
+    renderHistory();
+    updateChrome();
+    scheduleAutosave();
+    if (state.activeBlockId) focusBlock(state.activeBlockId);
+  }
+
+  function performRedo() {
+    const r = store.redo();
+    if (!r.ok) return;
+    pullFromStore();
+    renderBlocks();
+    renderScenes();
+    refreshStats();
+    renderHistory();
+    updateChrome();
+    scheduleAutosave();
+    if (state.activeBlockId) focusBlock(state.activeBlockId);
+  }
 
   const MONO_CARD = ['#111', '#333', '#555', '#777', '#222', '#444', '#666', '#000'];
 
@@ -155,20 +235,18 @@ import { writeAutosave, readAutosave } from './core/persist/autosave.js';
       btn.onclick = () => setView(btn.dataset.view);
     });
     $('#btnSyncCards').onclick = () => {
-      // Was: cards = autoCardsFromScenes(project) — a straight overwrite that
-      // destroyed every hand-written summary and beat, no merge, no confirm.
-      // findings.md §5.5 #4. syncCardsFromScenes reconciles instead.
-      const { cards, added, updated, orphaned } = E.syncCardsFromScenes(state.project);
-      state.project.cards = cards;
-      markDirty();
+      // Was: cards = autoCardsFromScenes(project) — overwrite destroyed summaries.
+      // findings.md §5.5 #4. Now an undoable store command using merge-sync.
+      const before = (state.project.cards || []).length;
+      exec('cards.syncFromScenes', {}, { label: 'Sync cards' });
+      const after = state.project.cards || [];
+      const orphaned = after.filter((c) => c.orphaned).length;
       renderCards();
-
-      const parts = [];
-      if (added) parts.push(`${added} added`);
-      if (updated) parts.push(`${updated} kept`);
-      if (orphaned) parts.push(`${orphaned} orphaned`);
       showSaveAlert(
-        parts.length ? `Cards synced — ${parts.join(', ')}.` : 'Cards already match the script.',
+        `Cards synced — ${after.length} on board` +
+          (orphaned ? `, ${orphaned} orphaned` : '') +
+          (before !== after.length ? ` (was ${before})` : '') +
+          '.',
         'warn'
       );
     };
@@ -290,6 +368,12 @@ import { writeAutosave, readAutosave } from './core/persist/autosave.js';
         case 'menu:find':
           toggleFind(true);
           break;
+        case 'menu:undo':
+          performUndo();
+          break;
+        case 'menu:redo':
+          performRedo();
+          break;
         case 'menu:element':
           if (state.activeBlockId) setBlockType(state.activeBlockId, payload);
           break;
@@ -328,9 +412,10 @@ import { writeAutosave, readAutosave } from './core/persist/autosave.js';
     // data, so a bad autosave costs you the restore, not the app.
     const data = readAutosave(window.localStorage);
     if (data && data.project) {
-      state.project = sanitizeProject(normalizeProject(data.project));
-      state.filePath = data.filePath || null;
-      state.dirty = !!data.dirty;
+      adoptDocument(sanitizeProject(normalizeProject(data.project)), {
+        filePath: data.filePath || null,
+        dirty: !!data.dirty,
+      });
       hideWelcome();
       fullRender();
       return;
@@ -374,9 +459,12 @@ import { writeAutosave, readAutosave } from './core/persist/autosave.js';
     if (state.dirty && !fromWelcome) {
       if (!confirm('Discard unsaved changes and start a new project?')) return;
     }
-    state.project = E.emptyProject('Untitled Screenplay');
-    state.filePath = null;
-    state.dirty = false;
+    store.resetDocument(E.emptyProject('Untitled Screenplay'), {
+      filePath: null,
+      dirty: false,
+      activeBlockId: null,
+    });
+    pullFromStore();
     hideWelcome();
     fullRender();
     focusFirstBlock();
@@ -429,12 +517,24 @@ I'm not leaving. Talk.
 
 BLACKOUT.
 `;
-    state.project = E.fromFountain(fountain, 'THE LAST SIGNAL');
-    state.filePath = null;
-    state.dirty = true;
+    adoptDocument(E.fromFountain(fountain, 'THE LAST SIGNAL'), {
+      filePath: null,
+      dirty: true,
+    });
     hideWelcome();
     fullRender();
     focusFirstBlock();
+  }
+
+  /** Load a new document identity into the store (clears undo). */
+  function adoptDocument(project, sessionPatch = {}) {
+    store.resetDocument(project, {
+      filePath: null,
+      dirty: false,
+      activeBlockId: null,
+      ...sessionPatch,
+    });
+    pullFromStore();
   }
 
   async function openProject() {
@@ -445,24 +545,24 @@ BLACKOUT.
     const res = await api.openProject();
     if (!res) return;
     const { filePath, content } = res;
+    let project;
     if (filePath.toLowerCase().endsWith('.fountain') || filePath.toLowerCase().endsWith('.spmd')) {
-      state.project = E.fromFountain(content, baseName(filePath));
+      project = E.fromFountain(content, baseName(filePath));
     } else {
       try {
         const data = JSON.parse(content);
-        state.project = normalizeProject(data);
+        project = normalizeProject(data);
       } catch {
-        // maybe fountain without extension
-        state.project = E.fromFountain(content, baseName(filePath));
+        project = E.fromFountain(content, baseName(filePath));
       }
     }
-    state.filePath =
+    const keepPath =
       filePath.toLowerCase().endsWith('.sdesk') ||
       filePath.toLowerCase().endsWith('.platen') ||
       filePath.toLowerCase().endsWith('.json')
         ? filePath
         : null;
-    state.dirty = false;
+    adoptDocument(project, { filePath: keepPath, dirty: false });
     hideWelcome();
     fullRender();
   }
@@ -496,6 +596,9 @@ BLACKOUT.
     state.filePath = res.filePath;
     state.dirty = false;
     state.project.updatedAt = new Date().toISOString();
+    store.setSession({ filePath: res.filePath, dirty: false });
+    store.markClean();
+    pullFromStore();
     clearSaveAlert('file');
     updateChrome();
     persistLocal();
@@ -505,9 +608,10 @@ BLACKOUT.
     if (!api) return;
     const res = await api.importFountain();
     if (!res) return;
-    state.project = E.fromFountain(res.content, baseName(res.filePath));
-    state.filePath = null;
-    state.dirty = true;
+    adoptDocument(E.fromFountain(res.content, baseName(res.filePath)), {
+      filePath: null,
+      dirty: true,
+    });
     hideWelcome();
     fullRender();
   }
@@ -569,9 +673,24 @@ BLACKOUT.
   }
 
   function markDirty() {
+    // Prefer exec() for document mutations (undoable). This remains for paths not
+    // yet migrated (snippets, bible, …). In-place mutations share the store's
+    // project object when pullFromStore was last used; otherwise re-base and
+    // clear the undo stack so invert payloads cannot target a diverged doc.
     if (state.suppressDirty) return;
     state.dirty = true;
     state.project.updatedAt = new Date().toISOString();
+    if (store.getProject() !== state.project) {
+      store.resetDocument(state.project, {
+        filePath: state.filePath,
+        dirty: true,
+        activeBlockId: state.activeBlockId,
+      });
+      pullFromStore();
+      state.dirty = true;
+    } else {
+      store.setSession({ dirty: true, filePath: state.filePath });
+    }
     updateChrome();
     scheduleAutosave();
   }
@@ -680,8 +799,16 @@ BLACKOUT.
   }
 
   function snapshot(label) {
-    E.pushHistory(state.project, label);
-    markDirty();
+    exec(
+      'meta.pushRevision',
+      {
+        id: E.uid(),
+        label: label || 'edit',
+        blocks: state.project.blocks,
+        at: new Date().toISOString(),
+      },
+      { label: 'Snapshot' }
+    );
     renderHistory();
   }
 
@@ -753,21 +880,25 @@ BLACKOUT.
     text.addEventListener('blur', () => {
       const b = getBlock(block.id);
       if (!b) return;
-      b.text = readBlockText(text);
-      // Industry normalize (sluglines, cues, transitions, parens)
-      const norm = E.normalizeBlock(b);
-      b.type = norm.type;
-      b.text = norm.text;
-      setBlockDomText(text, b.text);
-      // refresh gutter/classes if type unchanged (text may have changed casing)
+      const raw = readBlockText(text);
+      const norm = E.normalizeBlock({ ...b, text: raw });
+      if (norm.type !== b.type) {
+        exec('blocks.setType', { id: block.id, type: norm.type, text: norm.text });
+      } else if (norm.text !== b.text) {
+        exec('blocks.setText', { id: block.id, text: norm.text }, { mergeKey: `block:${block.id}` });
+      }
+      const latest = getBlock(block.id);
+      if (!latest) return;
+      setBlockDomText(text, latest.text);
       const row = blockRow(block.id);
       if (row) {
-        const gutter = row.querySelector('.block-gutter');
-        if (gutter) gutter.textContent = E.ELEMENT_LABELS[b.type] || b.type;
+        row.className = `block-row type-${latest.type}`;
+        const gutterEl = row.querySelector('.block-gutter');
+        if (gutterEl) gutterEl.textContent = E.ELEMENT_LABELS[latest.type] || latest.type;
       }
-      text.className = `block ${b.type}`;
-      if (b.type === 'scene') renderScenes();
-      markDirty();
+      text.className = `block ${latest.type}`;
+      text.dataset.type = latest.type;
+      if (latest.type === 'scene') renderScenes();
       refreshStats();
     });
 
@@ -1149,17 +1280,21 @@ BLACKOUT.
   function onBlockInput(id, textEl) {
     const b = getBlock(id);
     if (!b) return;
-    b.text = readBlockText(textEl);
+    let text = readBlockText(textEl);
     // Keep DOM as plain text after every input so Chromium doesn't nest <div>s
-    // Only flatten when HTML elements appear (not on every keystroke of pure text)
     if (textEl.querySelector && textEl.querySelector('div, p, span, font, br')) {
       const caretAtEnd = isCaretAtEnd(textEl);
-      setBlockDomText(textEl, b.text);
+      setBlockDomText(textEl, text);
       if (caretAtEnd) placeCaretEnd(textEl);
+      text = readBlockText(textEl);
     }
-    markDirty();
+    // Undoable typing — merges into one stack entry per block within 1s
+    exec('blocks.setText', { id, text }, { mergeKey: `block:${id}` });
     if (b.type === 'scene') renderScenes();
-    if (b.type === 'character') maybeShowAc(textEl, b);
+    if (b.type === 'character') {
+      // b may be stale; use store block for autocomplete query
+      maybeShowAc(textEl, getBlock(id));
+    }
     refreshStats();
     strikeTypebar();
   }
@@ -1225,15 +1360,15 @@ BLACKOUT.
           pre.setEnd(r.startContainer, r.startOffset);
           return pre.toString().length === 0;
         })();
-      if (!text || atStart && !text) {
+      if (!text || (atStart && !text)) {
         const idx = indexOfBlock(id);
         if (idx > 0 && !text) {
           e.preventDefault();
-          state.project.blocks.splice(idx, 1);
-          markDirty();
+          const prevId = state.project.blocks[idx - 1].id;
+          exec('blocks.remove', { id }, { label: 'Delete block' });
           renderBlocks();
           renderScenes();
-          focusBlock(state.project.blocks[idx - 1].id);
+          focusBlock(prevId);
           refreshStats();
         }
       }
@@ -1289,36 +1424,39 @@ BLACKOUT.
     const b = getBlock(id);
     if (!b) return;
     const textEl = blockEl(id);
-    if (textEl) b.text = readBlockText(textEl);
+    const rawText = textEl ? readBlockText(textEl) : b.text;
+    const nextType = type === 'note' ? 'note' : E.normalizeType(type);
+    const norm = E.normalizeBlock({ ...b, type: nextType, text: rawText });
+    exec('blocks.setType', {
+      id,
+      type: norm.type,
+      text: norm.text,
+    }, { label: `Change to ${E.ELEMENT_LABELS[norm.type] || norm.type}` });
 
-    b.type = type === 'note' ? 'note' : E.normalizeType(type);
-    const norm = E.normalizeBlock(b);
-    b.type = norm.type;
-    b.text = norm.text;
-    markDirty();
-
+    const latest = getBlock(id);
+    if (!latest) return;
     const row = blockRow(id);
     if (row) {
-      row.className = `block-row type-${b.type}`;
+      row.className = `block-row type-${latest.type}`;
       const gutter = row.querySelector('.block-gutter');
-      if (gutter) gutter.textContent = E.ELEMENT_LABELS[b.type] || b.type;
+      if (gutter) gutter.textContent = E.ELEMENT_LABELS[latest.type] || latest.type;
     }
     if (textEl) {
-      textEl.className = `block ${b.type}`;
-      textEl.dataset.type = b.type;
-      textEl.dataset.placeholder = placeholderFor(b.type);
-      setBlockDomText(textEl, b.text || '');
+      textEl.className = `block ${latest.type}`;
+      textEl.dataset.type = latest.type;
+      textEl.dataset.placeholder = placeholderFor(latest.type);
+      setBlockDomText(textEl, latest.text || '');
       placeCaretEnd(textEl);
     }
     if (els.elementSelect) {
-      els.elementSelect.value = ['scene','action','character','parenthetical','dialogue','transition','shot','general'].includes(b.type)
-        ? b.type
+      els.elementSelect.value = ['scene','action','character','parenthetical','dialogue','transition','shot','general'].includes(latest.type)
+        ? latest.type
         : 'general';
     }
-    els.statusElement.textContent = E.ELEMENT_LABELS[b.type] || b.type;
-    els.badgeType.textContent = E.ELEMENT_LABELS[b.type] || b.type;
-    syncElementRibbon(b.type);
-    if (b.type === 'scene') renderScenes();
+    els.statusElement.textContent = E.ELEMENT_LABELS[latest.type] || latest.type;
+    els.badgeType.textContent = E.ELEMENT_LABELS[latest.type] || latest.type;
+    syncElementRibbon(latest.type);
+    if (latest.type === 'scene') renderScenes();
     refreshStats();
   }
 
@@ -1335,30 +1473,28 @@ BLACKOUT.
   function insertAfter(id) {
     const b = getBlock(id);
     if (!b) return;
-    // sync + normalize current line first
     const curEl = blockEl(id);
+    // Flush + normalize current line into the store first
     if (curEl) {
-      b.text = readBlockText(curEl);
-      const norm = E.normalizeBlock(b);
-      b.type = norm.type;
-      b.text = norm.text;
+      const raw = readBlockText(curEl);
+      const norm = E.normalizeBlock({ ...b, text: raw });
+      if (norm.type !== b.type) {
+        exec('blocks.setType', { id, type: norm.type, text: norm.text });
+      } else if (norm.text !== b.text) {
+        exec('blocks.setText', { id, text: norm.text }, { mergeKey: `block:${id}` });
+      }
     }
+    const cur = getBlock(id);
+    if (!cur) return;
 
-    let type = E.ENTER_NEXT[b.type] || 'action';
-    if (b.type === 'dialogue') type = 'character';
-    // Empty character cue → drop to action (leave dialogue sequence)
-    if (b.type === 'character' && !(b.text || '').trim()) type = 'action';
-    // Empty dialogue → stay in character flow as new character
-    if (b.type === 'dialogue' && !(b.text || '').trim()) type = 'character';
+    let type = E.ENTER_NEXT[cur.type] || 'action';
+    if (cur.type === 'dialogue') type = 'character';
+    if (cur.type === 'character' && !(cur.text || '').trim()) type = 'action';
+    if (cur.type === 'dialogue' && !(cur.text || '').trim()) type = 'character';
 
-    let seed = '';
-    // After dialogue, if user presses Enter twice pattern handled above;
-    // Soft CONT'D: if next character will be same as previous after action — applied on export
-
-    const nb = E.createBlock(type, seed);
+    const nb = E.createBlock(type, '');
     const idx = indexOfBlock(id);
-    state.project.blocks.splice(idx + 1, 0, nb);
-    markDirty();
+    exec('blocks.insert', { index: idx + 1, block: nb }, { label: 'Insert block' });
     renderBlocks();
     if (type === 'scene') renderScenes();
     requestAnimationFrame(() => focusBlock(nb.id));
@@ -1641,22 +1777,20 @@ BLACKOUT.
           return;
         }
 
-        // Snapshot the CURRENT state before overwriting it.
-        //
-        // Without this, restoring was one confirm() dialog away from unrecoverable
-        // loss: the live draft was simply replaced and there was no undo anywhere in
-        // the app to get it back. findings.md §5.5 #3.
-        //
-        // (This is a stopgap. The real fix is the command/undo stack — restore should
-        // be one undoable command, not a snapshot side-effect. See ADR-0001.)
-        E.pushHistory(state.project, 'before restore');
-
-        state.project.blocks = JSON.parse(JSON.stringify(h.blocks));
-        markDirty();
+        // One undoable command (store design § catalogue project.restoreRevision).
+        // Inverse restores the live blocks — no separate "before restore" snapshot needed.
+        exec(
+          'project.restoreRevision',
+          {
+            blocks: JSON.parse(JSON.stringify(h.blocks)),
+            label: `Restore “${h.label || 'edit'}”`,
+          },
+          { label: `Restore “${h.label || 'edit'}”` }
+        );
         renderBlocks();
         renderScenes();
         refreshStats();
-        renderHistory(); // the new "before restore" entry should appear immediately
+        renderHistory();
       };
     });
   }
@@ -1889,11 +2023,10 @@ BLACKOUT.
 
   function applyAc(name, textEl, block) {
     if (!block || !textEl) return;
-    block.text = name;
+    exec('blocks.setText', { id: block.id, text: name }, { mergeKey: `block:${block.id}` });
     setBlockDomText(textEl, name);
     placeCaretEnd(textEl);
     hideAc();
-    markDirty();
   }
 
   function hideAc() {
@@ -1907,6 +2040,18 @@ BLACKOUT.
     const mod = e.ctrlKey || e.metaKey;
     // Never hijack plain character keys — only shortcuts
     if (!mod && e.key !== 'F11') return;
+
+    // Own undo/redo (Chromium CE undo is wiped by renderBlocks)
+    if (mod && !e.altKey && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      performUndo();
+      return;
+    }
+    if (mod && !e.altKey && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+      e.preventDefault();
+      performRedo();
+      return;
+    }
 
     if (mod && e.key.toLowerCase() === 's') {
       e.preventDefault();

@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('scriptdesk', {
       'menu:exportFountain',
       'menu:exportPdf',
       'menu:find',
+      'menu:undo',
+      'menu:redo',
       'menu:element',
       'menu:cycle',
       'menu:view',

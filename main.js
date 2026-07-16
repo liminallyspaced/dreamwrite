@@ -90,8 +90,11 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        // Own the stack — Chromium {role:undo} only covers one contenteditable
+        // and is wiped whenever renderBlocks clears innerHTML (Enter, etc.).
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => send('menu:undo') },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', click: () => send('menu:redo') },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Y', visible: false, click: () => send('menu:redo') },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
