@@ -654,6 +654,10 @@ function normalizeProject(project, { contd = true } = {}) {
   return p;
 }
 
+/**
+ * Build a fresh card per scene. Only safe on an EMPTY board — it has no idea what
+ * the user may have written. To refresh an existing board use syncCardsFromScenes.
+ */
 function autoCardsFromScenes(project) {
   const cards = [];
   let sceneIndex = 0;
@@ -671,6 +675,83 @@ function autoCardsFromScenes(project) {
     });
   }
   return cards;
+}
+
+/**
+ * Reconcile the beat board against the script, PRESERVING what the writer wrote.
+ *
+ * Replaces the old behaviour, where "Sync from scenes" called autoCardsFromScenes
+ * and assigned the result straight over project.cards — destroying every
+ * hand-written summary and beat, with no merge and no confirmation
+ * (docs/plan/00-findings.md §5.5 #4).
+ *
+ * Rules, in priority order:
+ *  1. NEVER silently delete the writer's prose. A card whose scene has gone is
+ *     kept and marked `orphaned`, not dropped — the scene may have been cut by
+ *     accident, or renamed, and the summary is often the more valuable half.
+ *  2. Match on sceneId. Title and number are derived from the script (the script
+ *     is the source of truth for those); summary, beat and colour are the user's
+ *     and are left alone.
+ *  3. Order follows the script.
+ *
+ * @returns {{ cards: object[], added: number, updated: number, orphaned: number }}
+ */
+function syncCardsFromScenes(project) {
+  const existing = Array.isArray(project.cards) ? project.cards : [];
+  const bySceneId = new Map();
+  for (const card of existing) {
+    if (card && card.sceneId) bySceneId.set(card.sceneId, card);
+  }
+
+  const cards = [];
+  const matched = new Set();
+  let sceneIndex = 0;
+  let added = 0;
+  let updated = 0;
+
+  for (const b of project.blocks || []) {
+    if (b.type !== 'scene') continue;
+    sceneIndex += 1;
+
+    const prior = bySceneId.get(b.id);
+    if (prior) {
+      matched.add(prior.id);
+      updated += 1;
+      cards.push({
+        ...prior, // summary / beat / colour / anything else the user set: untouched
+        sceneId: b.id,
+        number: sceneIndex,
+        title: b.text || `Scene ${sceneIndex}`,
+        orphaned: false,
+      });
+    } else {
+      added += 1;
+      cards.push({
+        id: uid(),
+        sceneId: b.id,
+        number: sceneIndex,
+        title: b.text || `Scene ${sceneIndex}`,
+        summary: '',
+        color: cardColor(sceneIndex),
+        beat: '',
+        orphaned: false,
+      });
+    }
+  }
+
+  // Anything left over: keep it. Losing a scene must not lose the writing about it.
+  let orphaned = 0;
+  for (const card of existing) {
+    if (matched.has(card.id)) continue;
+    const hasContent = (card.summary || '').trim() || (card.beat || '').trim();
+    // A pristine auto-generated card for a deleted scene carries nothing worth
+    // keeping — drop those. Only preserve what the writer actually typed.
+    if (!hasContent && card.sceneId) continue;
+    orphaned += 1;
+    cards.push({ ...card, orphaned: !!card.sceneId });
+  }
+
+  return { cards, added, updated, orphaned };
 }
 
 function cardColor(n) {
@@ -929,6 +1010,7 @@ export {
   extractLocations,
   parseSceneHeading,
   autoCardsFromScenes,
+  syncCardsFromScenes,
   computeStats,
   toPdfHtml,
   pushHistory,

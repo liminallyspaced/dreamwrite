@@ -155,9 +155,22 @@ import { writeAutosave, readAutosave } from './core/persist/autosave.js';
       btn.onclick = () => setView(btn.dataset.view);
     });
     $('#btnSyncCards').onclick = () => {
-      state.project.cards = E.autoCardsFromScenes(state.project);
+      // Was: cards = autoCardsFromScenes(project) — a straight overwrite that
+      // destroyed every hand-written summary and beat, no merge, no confirm.
+      // findings.md §5.5 #4. syncCardsFromScenes reconciles instead.
+      const { cards, added, updated, orphaned } = E.syncCardsFromScenes(state.project);
+      state.project.cards = cards;
       markDirty();
       renderCards();
+
+      const parts = [];
+      if (added) parts.push(`${added} added`);
+      if (updated) parts.push(`${updated} kept`);
+      if (orphaned) parts.push(`${orphaned} orphaned`);
+      showSaveAlert(
+        parts.length ? `Cards synced — ${parts.join(', ')}.` : 'Cards already match the script.',
+        'warn'
+      );
     };
     $('#btnAddCard').onclick = () => {
       const n = (state.project.cards || []).length + 1;
@@ -1459,11 +1472,16 @@ BLACKOUT.
     }
     cards.forEach((card, i) => {
       const el = document.createElement('div');
-      el.className = 'card';
+      el.className = card.orphaned ? 'card orphaned' : 'card';
+      // card.color came from project JSON straight into a style attribute
+      // unescaped (findings.md §5.5). CSP blocks script execution so it was not
+      // full XSS, but it is still an attribute-injection hole. Whitelist instead.
+      const swatch = safeColor(card.color);
       el.innerHTML = `
         <div class="card-top">
-          <span class="card-swatch" style="background:${card.color || '#6ea8ff'}"></span>
+          <span class="card-swatch" style="background:${swatch}"></span>
           <span class="card-num">#${card.number || i + 1}</span>
+          ${card.orphaned ? '<span class="card-orphan-tag" title="This card&#39;s scene is no longer in the script. Your notes were kept.">no scene</span>' : ''}
         </div>
         <input class="card-title-input" value="${escapeAttr(card.title || '')}" />
         <textarea class="card-summary" placeholder="What happens / emotional beat…">${escapeHtml(card.summary || '')}</textarea>
@@ -1611,12 +1629,34 @@ BLACKOUT.
       btn.onclick = () => {
         const h = list.find((x) => x.id === btn.dataset.hid);
         if (!h) return;
-        if (!confirm('Restore this snapshot? Current script blocks will be replaced.')) return;
+
+        const when = h.at ? new Date(h.at).toLocaleString() : 'this snapshot';
+        if (
+          !confirm(
+            `Restore "${h.label || 'edit'}" from ${when}?\n\n` +
+              'Your current script will be replaced — but it gets snapshotted first, ' +
+              'so you can restore back to it.'
+          )
+        ) {
+          return;
+        }
+
+        // Snapshot the CURRENT state before overwriting it.
+        //
+        // Without this, restoring was one confirm() dialog away from unrecoverable
+        // loss: the live draft was simply replaced and there was no undo anywhere in
+        // the app to get it back. findings.md §5.5 #3.
+        //
+        // (This is a stopgap. The real fix is the command/undo stack — restore should
+        // be one undoable command, not a snapshot side-effect. See ADR-0001.)
+        E.pushHistory(state.project, 'before restore');
+
         state.project.blocks = JSON.parse(JSON.stringify(h.blocks));
         markDirty();
         renderBlocks();
         renderScenes();
         refreshStats();
+        renderHistory(); // the new "before restore" entry should appear immediately
       };
     });
   }
@@ -1922,6 +1962,23 @@ BLACKOUT.
   }
   function escapeAttr(s) {
     return escapeHtml(s).replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Only let a known-good colour reach a style attribute.
+   *
+   * Escaping is the wrong tool inside `style="background:HERE"` — CSS has its own
+   * grammar, and a value like `red;background-image:url(...)` is perfectly valid
+   * HTML while still being an injection. So: whitelist the shapes we actually
+   * write (#rgb / #rrggbb / a plain CSS colour keyword) and reject everything else.
+   * findings.md §5.5.
+   */
+  function safeColor(value, fallback = '#6ea8ff') {
+    if (typeof value !== 'string') return fallback;
+    const v = value.trim();
+    if (/^#[0-9a-f]{3}$/i.test(v) || /^#[0-9a-f]{6}$/i.test(v)) return v;
+    if (/^[a-z]{3,20}$/i.test(v)) return v; // 'black', 'rebeccapurple' — no punctuation, no escape
+    return fallback;
   }
   function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

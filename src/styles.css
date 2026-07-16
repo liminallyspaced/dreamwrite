@@ -1067,3 +1067,28 @@ textarea { resize: vertical; min-height: 80px; }
   #workspace { grid-template-columns: var(--left-w) 1fr 0 !important; }
   #rightbar { display: none; }
 }
+
+/*
+  Orphaned beat card — its scene is no longer in the script, but the writer's
+  notes were kept rather than silently binned (findings.md §5.5 #4).
+  Reads as set-aside, not as an error: nothing is wrong, it just has no anchor.
+*/
+.card.orphaned {
+  opacity: 0.75;
+  border-style: dashed;
+}
+.card.orphaned:hover,
+.card.orphaned:focus-within {
+  opacity: 1;
+}
+.card-orphan-tag {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px dashed var(--border-soft, #444);
+  border-radius: 2px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint, #777);
+  cursor: help;
+}
