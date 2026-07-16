@@ -34,13 +34,14 @@ Baseline is `f987d17` — the app exactly as inherited. Everything since is diff
   Design: `docs/architecture/store-design.md`. 88 unit tests; smoke 3× green.
 
 **Also done (2026-07-16):**
-- **Pagination (ADR-0006)** — `core/script/{format,wrap,paginate}.js`; `computeStats` +
-  `toPdfHtml` consume the same `Page[]`; `FORMAT.linesPerPage` → **54**; Courier Prime
-  base64-embedded in PDF; `document.fonts.ready` in main PDF path; golden fixture
-  `tests/fixtures/golden-short.fountain`. Screen still one editable page surface;
-  page *count* matches stats/PDF. Full multi-page paper stack is a follow-up.
+- **Pagination (ADR-0006)** — engine + stats + PDF + multi-page screen stack.
+- **Store migration** — document mutations via `exec()`; bible/cards/meta/insertMany.
+- **app.js leaves** — `views/shared/text.js`, `views/script/page-layout.js`,
+  `core/project/{document,sample}.js`.
+- **Wheel fix (Phase 2 start)** — dead-zone `radialIndex = -1`; dismiss no longer
+  silently applies Scene; release-to-select; MMB pan slop cancels radial timer (ADR-0005).
 
-**Not done:** rest of app.js split, wheel/timeline/board.
+**Not done:** rest of app.js split, full wheel redesign (≤8 items, contextual), timeline/board.
 
 ---
 
@@ -66,15 +67,18 @@ Typing reflows only when page count changes (caret-safe). Synthetic MORE/CONT'D 
 
 ### 3. Split `app.js` against the store ← IN PROGRESS
 
-Store catalogue complete enough for script/bible/cards/meta. Document mutations no longer
-use `markDirty`. Leaves extracted: `views/shared/text.js`, `views/script/page-layout.js`.
-**Next slice:** project I/O / more leaves, smoke-verified per slice.
+Leaves: `views/shared/text.js`, `views/script/page-layout.js`, `core/project/document.js`,
+`core/project/sample.js`. **Next:** more leaves (save-alert, find/replace, bindUi sections)
+or continue Phase 2 wheel redesign.
 
 ### 4. Multi-page editor stack ← DONE (first-appearance assignment)
-Long dialogue stays one editable on the page it starts; PDF has true line splits.
-Optional polish: mid-page visual break markers inside a long block.
 
-### 5. The wheel (Phase 2) → 6. Timeline (Phase 3) → 7. Board (Phase 4) → 8. Completeness (Phase 5)
+### 5. The wheel (Phase 2) ← STARTED (silent-apply + dead-zone + MMB pan slop)
+
+Still open from roadmap: ≤8 items/ring, contextual payload, marks/novice→expert,
+submenu, WebAudio pool. **Do not reintroduce default index 0.**
+
+### 6. Timeline (Phase 3) → 7. Board (Phase 4) → 8. Completeness (Phase 5)
 
 Detail for each in `01-roadmap.md`.
 

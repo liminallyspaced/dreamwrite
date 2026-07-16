@@ -12,8 +12,11 @@
     sound: true,
     radialOpen: false,
     radialTimer: null,
-    radialIndex: 0,
+    /** -1 = dead-zone / no selection — never default to Scene (findings Crack 4) */
+    radialIndex: -1,
     mmbHeld: false,
+    mmbOrigin: null,
+    mmbPanning: false,
   };
 
   const RADIAL_ITEMS = [
@@ -152,7 +155,20 @@
     });
   }
 
+  function clearRadialHighlight() {
+    state.radialIndex = -1;
+    document.querySelectorAll('.radial-item').forEach((el) => {
+      el.classList.remove('hot');
+    });
+    const center = document.getElementById('radialCenter');
+    if (center) center.textContent = '·';
+  }
+
   function highlightRadial(i) {
+    if (i < 0 || i >= RADIAL_ITEMS.length) {
+      clearRadialHighlight();
+      return;
+    }
     state.radialIndex = i;
     document.querySelectorAll('.radial-item').forEach((el, idx) => {
       el.classList.toggle('hot', idx === i);
@@ -169,16 +185,21 @@
     radial.setAttribute('aria-hidden', 'false');
     radial.style.left = `${clientX}px`;
     radial.style.top = `${clientY}px`;
-    highlightRadial(0);
+    // Dead-zone start: dismissing without aiming must not apply Scene (index 0).
+    clearRadialHighlight();
     playSound('radial.wav', 0.3);
   }
 
-  function closeRadial() {
+  function closeRadial({ apply = false } = {}) {
     const radial = document.getElementById('radial');
     if (!radial) return;
+    if (apply && state.radialIndex >= 0) {
+      activateRadial(state.radialIndex);
+    }
     state.radialOpen = false;
     radial.classList.remove('open');
     radial.setAttribute('aria-hidden', 'true');
+    clearRadialHighlight();
   }
 
   function activateRadial(i) {
@@ -237,26 +258,45 @@
       true
     );
 
-    // Middle mouse radial
+    // Middle mouse: radial (hold) vs pan intent (move before timer) — ADR-0005
     let holdTimer = null;
+    const PAN_SLOP_PX = 6;
+    const RADIAL_DEAD_ZONE = 36;
+
     document.addEventListener('pointerdown', (e) => {
       if (e.button !== 1) return; // middle
       e.preventDefault();
       state.mmbHeld = true;
+      state.mmbPanning = false;
+      state.mmbOrigin = { x: e.clientX, y: e.clientY };
       const x = e.clientX;
       const y = e.clientY;
       holdTimer = setTimeout(() => {
-        if (state.mmbHeld) openRadial(x, y);
+        if (state.mmbHeld && !state.mmbPanning) openRadial(x, y);
       }, 140);
     });
     document.addEventListener('pointerup', (e) => {
       if (e.button === 1 || state.mmbHeld) {
         state.mmbHeld = false;
         clearTimeout(holdTimer);
-        // keep radial open until click outside or select
+        // Release-to-select when the wheel is open (Phase 2): apply only if aimed
+        if (state.radialOpen) {
+          closeRadial({ apply: state.radialIndex >= 0 });
+        }
+        state.mmbOrigin = null;
+        state.mmbPanning = false;
       }
     });
     document.addEventListener('pointermove', (e) => {
+      // Cancel radial timer if user starts panning before it fires
+      if (state.mmbHeld && !state.radialOpen && state.mmbOrigin && !state.mmbPanning) {
+        const dx0 = e.clientX - state.mmbOrigin.x;
+        const dy0 = e.clientY - state.mmbOrigin.y;
+        if (Math.hypot(dx0, dy0) > PAN_SLOP_PX) {
+          state.mmbPanning = true;
+          clearTimeout(holdTimer);
+        }
+      }
       if (!state.radialOpen) return;
       const radial = document.getElementById('radial');
       if (!radial) return;
@@ -266,7 +306,11 @@
       const dx = e.clientX - cx;
       const dy = e.clientY - cy;
       const dist = Math.hypot(dx, dy);
-      if (dist < 36) return;
+      // Centre dead-zone: no selection — dismiss must not mutate the document
+      if (dist < RADIAL_DEAD_ZONE) {
+        clearRadialHighlight();
+        return;
+      }
       let ang = Math.atan2(dy, dx) + Math.PI / 2;
       if (ang < 0) ang += Math.PI * 2;
       const n = RADIAL_ITEMS.length;
@@ -280,14 +324,13 @@
       if (!state.radialOpen) return;
       const radial = document.getElementById('radial');
       if (radial && !radial.contains(e.target)) {
-        // if hot item, activate
-        if (state.radialIndex >= 0) activateRadial(state.radialIndex);
-        closeRadial();
+        // Outside click: apply only if an item is hot (never default Scene)
+        closeRadial({ apply: state.radialIndex >= 0 });
       }
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && state.radialOpen) {
-        closeRadial();
+        closeRadial({ apply: false });
         e.preventDefault();
       }
     });

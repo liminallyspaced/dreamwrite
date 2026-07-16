@@ -21,6 +21,12 @@ import {
   baseName,
 } from './views/shared/text.js';
 import { writeAutosave, readAutosave } from './core/persist/autosave.js';
+import {
+  normalizeProject as normalizeProjectData,
+  sanitizeProject as sanitizeProjectData,
+  exportReadyProject as exportReadyProjectData,
+} from './core/project/document.js';
+import { sampleFountain } from './core/project/sample.js';
 import { createStore } from './core/store/index.js';
 
 (() => {
@@ -464,29 +470,14 @@ import { createStore } from './core/store/index.js';
     showWelcome();
   }
 
-  /** Strip gutter labels that used to leak into text when gutter was inside contentEditable */
+  /** Strip gutter-label leaks — pure core/project/document.js */
   function sanitizeProject(project) {
-    const labels = Object.values(E.ELEMENT_LABELS || {}).map((s) => s.toUpperCase());
-    labels.push('ACTION', 'SCENE HEADING', 'CHARACTER', 'PARENTHETICAL', 'DIALOGUE', 'TRANSITION', 'SHOT', 'GENERAL');
-    (project.blocks || []).forEach((b) => {
-      if (typeof b.text !== 'string') b.text = '';
-      // remove accidental trailing/leading type labels
-      let t = b.text.replace(/\r\n/g, '\n');
-      labels.forEach((lab) => {
-        const reEnd = new RegExp(`\\s*${lab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i');
-        const reStart = new RegExp(`^\\s*${lab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i');
-        // only strip if the whole field is basically the label or label glued on
-        if (t.trim().toUpperCase() === lab) t = '';
-        else if (reEnd.test(t) && t.trim().length <= lab.length + 2) t = t.replace(reEnd, '');
-      });
-      b.text = t;
-      b.type = E.normalizeType(b.type);
-      if (!b.id) b.id = E.uid();
+    return sanitizeProjectData(project, {
+      normalizeType: E.normalizeType,
+      uid: E.uid,
+      elementLabels: E.ELEMENT_LABELS,
+      emptyProject: () => E.emptyProject(),
     });
-    if (!project.blocks || !project.blocks.length) {
-      project.blocks = E.emptyProject().blocks;
-    }
-    return project;
   }
 
   function showWelcome() {
@@ -512,53 +503,7 @@ import { createStore } from './core/store/index.js';
   }
 
   function loadSample() {
-    const fountain = `Title: THE LAST SIGNAL
-Author: You
-Draft date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-
-===
-
-FADE IN:
-
-INT. RADIO TOWER - NIGHT
-
-Rain hammers the windows. Banks of antique equipment glow green in the dark.
-
-MAYA (30s), headphones half-on, scribbles on a legal pad. Static hisses.
-
-MAYA
-(whispering)
-Come on. One more time.
-
-She twists a dial. For a second — a voice, clear as glass.
-
-VOICE (V.O.)
-If you can hear this... don't answer.
-
-Maya freezes. The static swallows the words.
-
-MAYA
-Who is this?
-
-She hits RECORD. The reels spin.
-
-EXT. TOWER BASE - CONTINUOUS
-
-A black sedan idles in the mud. Headlights die.
-
-CUT TO:
-
-INT. RADIO TOWER - NIGHT
-
-Maya pulls the headphones off. Something thuds on the stairs.
-
-MAYA
-(into mic)
-I'm not leaving. Talk.
-
-BLACKOUT.
-`;
-    adoptDocument(E.fromFountain(fountain, 'THE LAST SIGNAL'), {
+    adoptDocument(E.fromFountain(sampleFountain(), 'THE LAST SIGNAL'), {
       filePath: null,
       dirty: true,
     });
@@ -658,8 +603,11 @@ BLACKOUT.
   }
 
   function exportReadyProject() {
-    // Full industry pass before export: normalize elements + CONT'D
-    return E.normalizeProject(JSON.parse(JSON.stringify(state.project)), { contd: true });
+    return exportReadyProjectData(
+      state.project,
+      { normalizeProject: E.normalizeProject },
+      { contd: true }
+    );
   }
 
   async function exportFountain() {
@@ -698,19 +646,7 @@ BLACKOUT.
   }
 
   function normalizeProject(data) {
-    const base = E.emptyProject();
-    return {
-      ...base,
-      ...data,
-      titlePage: { ...base.titlePage, ...(data.titlePage || {}) },
-      blocks: Array.isArray(data.blocks) && data.blocks.length ? data.blocks : base.blocks,
-      characters: data.characters || [],
-      locations: data.locations || [],
-      cards: data.cards || [],
-      notes: data.notes || '',
-      settings: { ...base.settings, ...(data.settings || {}) },
-      history: data.history || [],
-    };
+    return normalizeProjectData(data, { emptyProject: () => E.emptyProject() });
   }
 
   /**
