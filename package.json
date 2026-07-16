@@ -6,9 +6,14 @@
   "author": "Nick",
   "license": "MIT",
   "scripts": {
-    "start": "electron .",
-    "pack": "electron-builder --win portable",
-    "dist": "electron-builder --win portable dir"
+    "build": "node build.js",
+    "build:prod": "node build.js --prod",
+    "dev": "node build.js --watch",
+    "start": "node build.js && electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pack": "node build.js --prod && electron-builder --win portable",
+    "dist": "node build.js --prod && electron-builder --win portable dir"
   },
   "build": {
     "appId": "com.synth.platen",
@@ -30,11 +35,15 @@
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "dir",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
@@ -45,6 +54,8 @@
   },
   "devDependencies": {
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.1",
+    "vitest": "^4.1.10"
   }
 }
