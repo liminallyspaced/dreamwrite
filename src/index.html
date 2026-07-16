@@ -43,10 +43,13 @@
           <div class="tb-group nav-views">
             <button class="ghost view-btn active" data-view="script">Script</button>
             <button class="ghost view-btn" data-view="cards">Cards</button>
+            <button class="ghost view-btn" data-view="board">Board</button>
+            <button class="ghost view-btn" data-view="timeline">Timeline</button>
             <button class="ghost view-btn" data-view="characters">Cast</button>
             <button class="ghost view-btn" data-view="locations">Locations</button>
             <button class="ghost view-btn" data-view="title">Title</button>
             <button class="ghost view-btn" data-view="notes">Notes</button>
+            <button class="ghost view-btn" data-view="search">Search</button>
           </div>
           <div class="tb-grow"></div>
           <button class="ghost" id="btnFind" title="Find">Find</button>
@@ -170,6 +173,28 @@
             <button id="btnAddCard">Add card</button>
           </div>
           <div class="cards-board" id="cardsBoard"></div>
+        </section>
+
+        <section class="view" id="view-board">
+          <div id="boardRoot" class="board-root"></div>
+        </section>
+
+        <section class="view" id="view-timeline">
+          <div id="timelineRoot" class="timeline-root"></div>
+        </section>
+
+        <section class="view" id="view-search">
+          <div class="form-view">
+            <div class="form-card">
+              <h2>Search project</h2>
+              <p class="muted">Offline full-text across script, cast, timeline, and board.</p>
+              <div class="form-row">
+                <label for="projectSearch">Query</label>
+                <input id="projectSearch" placeholder="Find scenes, characters, beats…" />
+              </div>
+              <div id="searchResults" class="search-results"></div>
+            </div>
+          </div>
         </section>
 
         <section class="view" id="view-characters">

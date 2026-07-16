@@ -138,6 +138,11 @@ describe('main.js writeFileAtomic stays honest', () => {
 
   it('project + text writes go through writeFileAtomic', () => {
     expect(source).toContain('await writeFileAtomic(target, content)');
-    expect(source).toContain('await writeFileAtomic(filePath, content)');
+    // fs:writeText may rename the arg after path sandbox (Phase 4 assertPathAllowed)
+    expect(
+      source.includes('await writeFileAtomic(filePath, content)') ||
+        source.includes('await writeFileAtomic(safe, content)')
+    ).toBe(true);
+    expect(source).toContain('assertPathAllowed');
   });
 });

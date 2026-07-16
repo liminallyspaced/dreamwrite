@@ -198,24 +198,25 @@ function scriptRing(type) {
 }
 
 function boardRing() {
-  // Board surface not fully built — honest stubs won't mutate prose
+  // Actions handled via PlatenUI when present; otherwise no-ops
   return [
-    { id: 'note', label: 'Note', action: 'noop', value: 'card-note' },
-    { id: 'scene', label: '→ Scene', action: 'noop', value: 'link-scene' },
-    { id: 'col', label: 'Column', action: 'noop', value: 'column' },
-    { id: 'arrow', label: 'Arrow', action: 'noop', value: 'arrow' },
+    { id: 'note', label: 'Note', action: 'board', value: 'note' },
+    { id: 'sync', label: 'Scenes', action: 'board', value: 'sync' },
+    { id: 'sub', label: 'Sub ▸', action: 'board', value: 'sub' },
     { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
-    { id: 'script', label: 'Script', action: 'noop', value: 'view-script' },
+    { id: 'script', label: 'Script', action: 'view', value: 'script' },
+    { id: 'tl', label: 'Time', action: 'view', value: 'timeline' },
   ];
 }
 
 function timelineRing() {
   return [
-    { id: 'event', label: 'Event', action: 'noop', value: 'event' },
-    { id: 'period', label: 'Period', action: 'noop', value: 'period' },
-    { id: 'link', label: '→ Scene', action: 'noop', value: 'link-scene' },
-    { id: 'date', label: 'Date', action: 'noop', value: 'set-date' },
-    { id: 'fit', label: 'Fit', action: 'noop', value: 'fit' },
+    { id: 'add', label: 'Event', action: 'timeline', value: 'add' },
+    { id: 'sync', label: 'Scenes', action: 'timeline', value: 'sync' },
+    { id: 'demo', label: 'Demo', action: 'timeline', value: 'demo' },
+    { id: 'fit', label: 'Fit', action: 'timeline', value: 'fit' },
     { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
+    { id: 'script', label: 'Script', action: 'view', value: 'script' },
+    { id: 'board', label: 'Board', action: 'view', value: 'board' },
   ];
 }

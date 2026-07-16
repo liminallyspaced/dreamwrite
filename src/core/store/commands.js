@@ -6,6 +6,8 @@ import * as blocks from './mutations/blocks.js';
 import * as cards from './mutations/cards.js';
 import * as meta from './mutations/meta.js';
 import * as bible from './mutations/bible.js';
+import * as timeline from './mutations/timeline.js';
+import * as board from './mutations/board.js';
 import { restoreRevisionBlocks } from './mutations/compound.js';
 
 /**
@@ -266,6 +268,133 @@ export const registry = {
     },
   },
 
+  'timeline.set': {
+    label: 'Timeline',
+    apply(project, payload) {
+      return timeline.setTimeline(project, payload);
+    },
+    invert(project, payload) {
+      return timeline.setTimeline(project, { timeline: payload.before });
+    },
+  },
+  'timeline.addItem': {
+    label: 'Add timeline item',
+    apply(project, payload) {
+      return timeline.addTimelineItem(project, payload);
+    },
+    invert(project, payload) {
+      return timeline.removeTimelineItem(project, { id: payload.id });
+    },
+  },
+  'timeline.updateItem': {
+    label: 'Edit timeline item',
+    apply(project, payload) {
+      return timeline.updateTimelineItem(project, payload);
+    },
+    invert(project, payload) {
+      return timeline.updateTimelineItem(project, {
+        id: payload.id,
+        patch: payload.beforePatch,
+      });
+    },
+  },
+  'timeline.removeItem': {
+    label: 'Delete timeline item',
+    apply(project, payload) {
+      return timeline.removeTimelineItem(project, payload);
+    },
+    invert(project, payload) {
+      return timeline.addTimelineItem(project, { item: payload.item });
+    },
+  },
+  'timeline.syncScenes': {
+    label: 'Sync timeline from scenes',
+    apply(project) {
+      return timeline.syncTimelineFromScenes(project);
+    },
+    invert(project, payload) {
+      return timeline.setTimeline(project, { timeline: payload.before });
+    },
+  },
+  'timeline.seedDemo': {
+    label: 'Seed demo timeline',
+    apply(project) {
+      return timeline.seedDemoTimeline(project);
+    },
+    invert(project, payload) {
+      return timeline.setTimeline(project, { timeline: payload.before });
+    },
+  },
+  'board.set': {
+    label: 'Board',
+    apply(project, payload) {
+      return board.setBoards(project, payload);
+    },
+    invert(project, payload) {
+      return board.setBoards(project, { boards: payload.before });
+    },
+  },
+  'board.addItem': {
+    label: 'Add board item',
+    apply(project, payload) {
+      return board.boardAddItem(project, payload);
+    },
+    invert(project, payload) {
+      return board.boardRemoveItem(project, { id: payload.id });
+    },
+  },
+  'board.updateItem': {
+    label: 'Edit board item',
+    apply(project, payload) {
+      return board.boardUpdateItem(project, payload);
+    },
+    invert(project, payload) {
+      return board.boardUpdateItem(project, {
+        id: payload.id,
+        patch: payload.beforePatch,
+      });
+    },
+  },
+  'board.removeItem': {
+    label: 'Delete board item',
+    apply(project, payload) {
+      return board.boardRemoveItem(project, payload);
+    },
+    invert(project, payload) {
+      return board.boardAddItem(project, {
+        boardId: payload.item.boardId,
+        item: payload.item,
+      });
+    },
+  },
+  'board.syncScenes': {
+    label: 'Sync board from scenes',
+    apply(project, payload) {
+      return board.boardSyncScenes(project, payload || {});
+    },
+    invert(project, payload) {
+      return board.setBoards(project, { boards: payload.before });
+    },
+  },
+  'board.createSubBoard': {
+    label: 'Create sub-board',
+    apply(project, payload) {
+      return board.boardCreateSubBoard(project, payload || {});
+    },
+    invert(project, payload) {
+      return board.setBoards(project, { boards: payload.before });
+    },
+  },
+  'board.applyTemplate': {
+    label: 'Apply template',
+    apply(project, payload) {
+      return board.boardApplyTemplate(project, payload);
+    },
+    invert(project, payload) {
+      return board.setBoards(project, { boards: payload.before });
+    },
+  },
+
   'meta.pushRevision': {
     label: 'Snapshot',
     apply(project, payload) {
@@ -498,6 +627,88 @@ export function prepare(type, project, payload = {}) {
     case 'meta.pushRevision': {
       return {
         inversePayload: { id: payload.id },
+        label: def.label,
+      };
+    }
+    case 'timeline.set': {
+      return {
+        inversePayload: {
+          before: JSON.parse(JSON.stringify(project.timeline || null)),
+        },
+        label: def.label,
+      };
+    }
+    case 'timeline.addItem': {
+      const item = payload.item;
+      if (!item?.id) return { error: 'addItem requires item.id' };
+      return {
+        inversePayload: { id: item.id },
+        label: def.label,
+      };
+    }
+    case 'timeline.updateItem': {
+      const it = (project.timeline?.items || []).find((x) => x.id === payload.id);
+      if (!it) return { error: 'Timeline item not found' };
+      const beforePatch = {};
+      for (const k of Object.keys(payload.patch || {})) beforePatch[k] = it[k];
+      return {
+        inversePayload: { id: payload.id, beforePatch },
+        label: def.label,
+        mergeKey: payload.mergeKey || `tl:${payload.id}`,
+      };
+    }
+    case 'timeline.removeItem': {
+      const it = (project.timeline?.items || []).find((x) => x.id === payload.id);
+      if (!it) return { error: 'Timeline item not found' };
+      return {
+        inversePayload: { item: { ...it } },
+        label: def.label,
+      };
+    }
+    case 'timeline.syncScenes':
+    case 'timeline.seedDemo': {
+      return {
+        inversePayload: {
+          before: JSON.parse(JSON.stringify(project.timeline || null)),
+        },
+        label: def.label,
+      };
+    }
+    case 'board.set':
+    case 'board.syncScenes':
+    case 'board.createSubBoard':
+    case 'board.applyTemplate': {
+      return {
+        inversePayload: {
+          before: JSON.parse(JSON.stringify(project.boards || null)),
+        },
+        label: def.label,
+      };
+    }
+    case 'board.addItem': {
+      const item = payload.item;
+      if (!item?.id) return { error: 'addItem requires item.id' };
+      return {
+        inversePayload: { id: item.id },
+        label: def.label,
+      };
+    }
+    case 'board.updateItem': {
+      const it = project.boards?.items?.[payload.id];
+      if (!it) return { error: 'Board item not found' };
+      const beforePatch = {};
+      for (const k of Object.keys(payload.patch || {})) beforePatch[k] = it[k];
+      return {
+        inversePayload: { id: payload.id, beforePatch },
+        label: def.label,
+        mergeKey: payload.mergeKey || `bd:${payload.id}`,
+      };
+    }
+    case 'board.removeItem': {
+      const it = project.boards?.items?.[payload.id];
+      if (!it) return { error: 'Board item not found' };
+      return {
+        inversePayload: { item: JSON.parse(JSON.stringify(it)) },
         label: def.label,
       };
     }

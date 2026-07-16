@@ -27,7 +27,10 @@ import {
   exportReadyProject as exportReadyProjectData,
 } from './core/project/document.js';
 import { sampleFountain } from './core/project/sample.js';
+import { searchProject } from './core/project/search.js';
 import { createStore } from './core/store/index.js';
+import { mountTimelineView } from './views/timeline/timeline-view.js';
+import { mountBoardView } from './views/board/board-view.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -191,11 +194,31 @@ import { createStore } from './core/store/index.js';
       applyElement: (type) => applyElementFromRibbon(type),
       insertSnippet: (snip, opts) => insertSnippet(snip, opts || {}),
       insertLine: (line, type) => insertLineSnippet(line, type || 'transition'),
+      setView: (name) => setView(name),
       /** Contextual marking menu (ADR-0005 / Phase 2) */
       getRadialContext: () => ({
         view: state.view || 'script',
         elementType: getBlock(state.activeBlockId)?.type || 'action',
       }),
+      boardAction: (cmd) => {
+        setView('board');
+        ensureBoardMounted();
+        if (cmd === 'note') {
+          const root = $('#boardRoot');
+          root?.querySelector('[data-bd="note"]')?.click();
+        } else if (cmd === 'sync') {
+          $('#boardRoot')?.querySelector('[data-bd="sync"]')?.click();
+        } else if (cmd === 'sub') {
+          $('#boardRoot')?.querySelector('[data-bd="sub"]')?.click();
+        }
+      },
+      timelineAction: (cmd) => {
+        setView('timeline');
+        ensureTimelineMounted();
+        const map = { add: 'add', sync: 'sync', demo: 'demo', fit: 'fit' };
+        const key = map[cmd];
+        if (key) $('#timelineRoot')?.querySelector(`[data-tl="${key}"]`)?.click();
+      },
     };
 
     $('#btnNew').onclick = () => newProject();
@@ -1996,19 +2019,94 @@ import { createStore } from './core/store/index.js';
 
   /* ---------- views / theme / focus ---------- */
 
+  let timelineApi = null;
+  let boardApi = null;
+
+  function surfaceApi() {
+    return {
+      getProject: () => state.project,
+      exec: (type, payload, opts) => exec(type, payload, opts),
+      onJumpToScene: (blockId) => {
+        setView('script');
+        focusBlock(blockId, true);
+      },
+    };
+  }
+
+  function ensureTimelineMounted() {
+    const root = $('#timelineRoot');
+    if (!root) return;
+    if (!timelineApi) timelineApi = mountTimelineView(root, surfaceApi());
+    timelineApi.render();
+  }
+
+  function ensureBoardMounted() {
+    const root = $('#boardRoot');
+    if (!root) return;
+    if (!boardApi) boardApi = mountBoardView(root, surfaceApi());
+    boardApi.render();
+  }
+
   function setView(name) {
     state.view = name || 'script';
+    store.setSession({ view: state.view });
     $$('.view').forEach((v) => v.classList.remove('active'));
     const target = $(`#view-${state.view}`);
     if (target) target.classList.add('active');
     $$('.view-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === state.view));
     if (state.view === 'cards' && !(state.project.cards || []).length) {
+      // Prefer store path if available; seed empty board cards only when none exist
       state.project.cards = E.autoCardsFromScenes(state.project);
       renderCards();
     }
     if (state.view === 'characters') renderCharacters();
     if (state.view === 'locations') renderLocations();
     if (state.view === 'title') renderTitleForm();
+    if (state.view === 'timeline') ensureTimelineMounted();
+    if (state.view === 'board') ensureBoardMounted();
+    if (state.view === 'search') renderSearchResults();
+  }
+
+  function renderSearchResults() {
+    const input = $('#projectSearch');
+    const box = $('#searchResults');
+    if (!input || !box) return;
+    if (!input.dataset.bound) {
+      input.dataset.bound = '1';
+      input.addEventListener('input', () => renderSearchResults());
+    }
+    const hits = searchProject(state.project, input.value);
+    if (!hits.length) {
+      box.innerHTML = input.value.trim()
+        ? '<div class="muted">No matches.</div>'
+        : '<div class="muted">Type to search the whole project offline.</div>';
+      return;
+    }
+    box.innerHTML = hits
+      .map(
+        (h) =>
+          `<button type="button" class="search-hit" data-kind="${escapeAttr(h.kind)}" data-id="${escapeAttr(h.id)}">
+            <strong>${escapeHtml(h.kind)}</strong> ${escapeHtml(h.title)}
+            <span class="snip">${escapeHtml(h.snippet)}</span>
+          </button>`
+      )
+      .join('');
+    box.querySelectorAll('.search-hit').forEach((btn) => {
+      btn.onclick = () => {
+        const kind = btn.dataset.kind;
+        const id = btn.dataset.id;
+        if (kind === 'block') {
+          setView('script');
+          focusBlock(id, true);
+        } else if (kind === 'character') {
+          setView('characters');
+        } else if (kind === 'timeline') {
+          setView('timeline');
+        } else if (kind === 'board') {
+          setView('board');
+        }
+      };
+    });
   }
 
   function toggleTheme() {
@@ -2240,8 +2338,18 @@ import { createStore } from './core/store/index.js';
         setBlockType(state.activeBlockId, map[+e.key - 1]);
       }
     }
-    if (mod && e.shiftKey && e.key >= '1' && e.key <= '6') {
-      const views = ['script', 'cards', 'characters', 'locations', 'title', 'notes'];
+    if (mod && e.shiftKey && e.key >= '1' && e.key <= '9') {
+      const views = [
+        'script',
+        'cards',
+        'board',
+        'timeline',
+        'characters',
+        'locations',
+        'title',
+        'notes',
+        'search',
+      ];
       e.preventDefault();
       setView(views[+e.key - 1]);
     }

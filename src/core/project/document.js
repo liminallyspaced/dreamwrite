@@ -22,6 +22,10 @@ export function normalizeProject(data, deps) {
     notes: data.notes || '',
     settings: { ...base.settings, ...(data.settings || {}) },
     history: data.history || [],
+    // Phase 3–5 surfaces (lazy-filled by ensure* if missing)
+    timeline: data.timeline || base.timeline || null,
+    boards: data.boards || base.boards || null,
+    tags: data.tags || base.tags || [],
   };
 }
 

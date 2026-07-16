@@ -34,19 +34,68 @@ import {
     holdTimer: null,
   };
 
-  // --- Sounds ---
+  // --- Sounds (WebAudio pool — Phase 2 remainder) ---
   const audioCache = {};
+  /** @type {AudioContext | null} */
+  let audioCtx = null;
+  /** @type {Map<string, AudioBuffer>} */
+  const bufferPool = new Map();
+
   function soundUrl(name) {
     return `../assets/sounds/${name}`;
   }
+
+  function getAudioCtx() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    return audioCtx;
+  }
+
+  async function loadBuffer(name) {
+    if (bufferPool.has(name)) return bufferPool.get(name);
+    const ctx = getAudioCtx();
+    if (!ctx) return null;
+    try {
+      const res = await fetch(soundUrl(name));
+      const ab = await res.arrayBuffer();
+      const buf = await ctx.decodeAudioData(ab.slice(0));
+      bufferPool.set(name, buf);
+      return buf;
+    } catch {
+      return null;
+    }
+  }
+
   function playSound(name, volume = 0.35) {
     if (!state.sound) return;
+    const ctx = getAudioCtx();
+    if (ctx) {
+      // Prefer pooled WebAudio (no per-key cloneNode thrash)
+      loadBuffer(name).then((buf) => {
+        if (!buf || !state.sound) return;
+        try {
+          if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+          const src = ctx.createBufferSource();
+          const gain = ctx.createGain();
+          gain.gain.value = Math.min(1, volume);
+          src.buffer = buf;
+          src.connect(gain);
+          gain.connect(ctx.destination);
+          src.start(0);
+        } catch {
+          /* fall through */
+        }
+      });
+      return;
+    }
+    // Fallback: HTMLAudioElement
     try {
-      const key = name;
-      let a = audioCache[key];
+      let a = audioCache[name];
       if (!a) {
         a = new Audio(soundUrl(name));
-        audioCache[key] = a;
+        audioCache[name] = a;
       }
       const clone = a.cloneNode();
       clone.volume = Math.min(1, volume);
@@ -243,10 +292,7 @@ import {
       playSound('radial.wav', 0.12);
       return;
     }
-    if (item.action === 'noop') {
-      // Board/timeline stubs — no document mutation
-      return;
-    }
+    if (item.action === 'noop') return;
 
     const api = window.PlatenUI;
     if (item.action === 'element' && api?.applyElement) {
@@ -259,6 +305,12 @@ import {
       api.insertLine(item.value, item.type || 'transition');
     } else if (item.action === 'focus') {
       setFocusMode(item.value);
+    } else if (item.action === 'view' && api?.setView) {
+      api.setView(item.value);
+    } else if (item.action === 'board' && api?.boardAction) {
+      api.boardAction(item.value);
+    } else if (item.action === 'timeline' && api?.timelineAction) {
+      api.timelineAction(item.value);
     }
   }
 

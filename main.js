@@ -280,12 +280,37 @@ ipcMain.handle('export:pdf', async (_e, { html, suggestedName }) => {
   return { filePath: target };
 });
 
+/**
+ * Phase 4 gate: renderer must not read/write arbitrary paths.
+ * Allow only under userData, documents/Platen projects, or the app directory.
+ */
+function assertPathAllowed(filePath) {
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Path required');
+  }
+  const resolved = path.resolve(filePath);
+  const allowedRoots = [
+    path.resolve(app.getPath('userData')),
+    path.resolve(app.getPath('documents')),
+    path.resolve(__dirname),
+  ];
+  const ok = allowedRoots.some(
+    (root) => resolved === root || resolved.startsWith(root + path.sep)
+  );
+  if (!ok) {
+    throw new Error('Path outside allowed directories');
+  }
+  return resolved;
+}
+
 ipcMain.handle('fs:readText', async (_e, filePath) => {
-  return fsp.readFile(filePath, 'utf8');
+  const safe = assertPathAllowed(filePath);
+  return fsp.readFile(safe, 'utf8');
 });
 
 ipcMain.handle('fs:writeText', async (_e, { filePath, content }) => {
-  await writeFileAtomic(filePath, content);
+  const safe = assertPathAllowed(filePath);
+  await writeFileAtomic(safe, content);
   return true;
 });
 
