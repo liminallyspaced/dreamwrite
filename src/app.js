@@ -1,5 +1,17 @@
-/* global ScriptEngine, scriptdesk */
+/* global scriptdesk */
+import {
+  setBlockDomText,
+  readBlockText,
+  placeCaretEnd,
+  placeCaretStart,
+  isCaretAtEnd,
+  placeholderFor,
+} from './views/script/block-dom.js';
+
 (() => {
+  // Still the global rather than a direct import: engine-global.js installs it, and
+  // this file is one big IIFE that other code reaches into. Becomes a real import
+  // as the split continues. See docs/plan/01-roadmap.md Phase 0.
   const E = window.ScriptEngine;
   const api = window.scriptdesk;
 
@@ -668,36 +680,8 @@ BLACKOUT.
     return row;
   }
 
-  function setBlockDomText(textEl, value) {
-    // Use textContent only — never mix gutter/HTML into the editable node
-    textEl.textContent = value || '';
-  }
-
-  function readBlockText(textEl) {
-    if (!textEl) return '';
-    // innerText collapses weirdly with br; textContent is reliable for plain text
-    // But browsers insert <br> on empty lines — normalize
-    let raw = '';
-    const walk = (node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        raw += node.nodeValue;
-        return;
-      }
-      if (node.nodeType !== Node.ELEMENT_NODE) return;
-      const tag = node.tagName;
-      if (tag === 'BR') {
-        raw += '\n';
-        return;
-      }
-      if (tag === 'DIV' || tag === 'P') {
-        // block break before nested blocks (except first)
-        if (raw.length && !raw.endsWith('\n')) raw += '\n';
-      }
-      node.childNodes.forEach(walk);
-    };
-    textEl.childNodes.forEach(walk);
-    return raw.replace(/\u00a0/g, ' ').replace(/\n$/, '');
-  }
+  // setBlockDomText / readBlockText / placeCaret* / isCaretAtEnd / placeholderFor
+  // now live in ./views/script/block-dom.js (Phase 0 extraction).
 
   function onBlockPaste(e, id, textEl) {
     e.preventDefault();
@@ -725,49 +709,6 @@ BLACKOUT.
     setBlockDomText(textEl, b.text);
     placeCaretEnd(textEl);
     onBlockInput(id, textEl);
-  }
-
-  function placeCaretEnd(el) {
-    el.focus();
-    const range = document.createRange();
-    const sel = window.getSelection();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
-
-  function placeCaretStart(el) {
-    el.focus();
-    const range = document.createRange();
-    const sel = window.getSelection();
-    range.selectNodeContents(el);
-    range.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
-
-  function placeholderFor(type) {
-    switch (type) {
-      case 'scene':
-        return 'INT. LOCATION - DAY';
-      case 'action':
-        return 'What we SEE and HEAR — present tense...';
-      case 'character':
-        return 'CHARACTER NAME';
-      case 'parenthetical':
-        return 'wryly';
-      case 'dialogue':
-        return 'Spoken words...';
-      case 'transition':
-        return 'CUT TO:';
-      case 'shot':
-        return 'CLOSE ON — use sparingly';
-      case 'note':
-        return 'Production note (not spoken)...';
-      default:
-        return 'Type...';
-    }
   }
 
   function onBlockFocus(id) {
@@ -1125,17 +1066,6 @@ BLACKOUT.
     if (b.type === 'character') maybeShowAc(textEl, b);
     refreshStats();
     strikeTypebar();
-  }
-
-  function isCaretAtEnd(el) {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return true;
-    const range = sel.getRangeAt(0);
-    if (!el.contains(range.endContainer)) return true;
-    const test = document.createRange();
-    test.selectNodeContents(el);
-    test.setStart(range.endContainer, range.endOffset);
-    return test.toString().length === 0;
   }
 
   function onBlockKeydown(e, id, textEl) {
