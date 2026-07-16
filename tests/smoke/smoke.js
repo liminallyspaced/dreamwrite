@@ -144,26 +144,35 @@ async function main() {
     await cdp.evaluate('document.querySelector("#welcomeSample").click()');
     await new Promise((r) => setTimeout(r, 600));
 
-    const blockCount = await cdp.evaluate('document.querySelectorAll("#blocks .block").length');
+    // Multi-page stack: editables live under .page-stack (first host also has #blocks)
+    const blockCount = await cdp.evaluate(
+      'document.querySelectorAll(".page-stack .block[contenteditable=\\"true\\"], #blocks .block").length'
+    );
     check('sample script rendered blocks', blockCount > 0, `${blockCount} blocks`);
 
     // --- THE POINT: exercise the extracted block-dom code ----------------------
     // readBlockText / setBlockDomText / placeCaretEnd only run once you type.
+    // Prefer an action block so we don't fight scene/character normalisation.
     const typed = await cdp.evaluate(`(() => {
-      const el = document.querySelector('#blocks .block.text') || document.querySelector('#blocks [contenteditable="true"]');
+      const el = document.querySelector('.page-stack .block.action[contenteditable="true"]')
+        || document.querySelector('.page-stack .block[contenteditable="true"]')
+        || document.querySelector('#blocks .block');
       if (!el) return { error: 'no editable block found' };
       el.focus();
       el.textContent = 'SMOKE TEST LINE';
       el.dispatchEvent(new Event('input', { bubbles: true }));
-      return { text: el.textContent };
+      return { text: el.textContent, id: el.dataset.id };
     })()`);
     check('typing into a block does not throw', !typed.error, typed.error || typed.text);
 
     // Did the keystroke reach the document model? This is the round trip that
     // readBlockText() is responsible for.
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 350));
     const inModel = await cdp.evaluate(`(() => {
-      const el = document.querySelector('#blocks .block.text') || document.querySelector('#blocks [contenteditable="true"]');
+      const id = ${JSON.stringify(typed.id || '')};
+      const el = (id && document.querySelector('.page-stack .block[data-id="' + id + '"]'))
+        || document.querySelector('.page-stack .block.action[contenteditable="true"]')
+        || document.querySelector('.page-stack .block[contenteditable="true"]');
       const stats = document.querySelector('#statusCounts');
       return { dom: el ? el.textContent : null, status: stats ? stats.textContent : null };
     })()`);
@@ -171,7 +180,8 @@ async function main() {
 
     // --- multi-line: the <br> path readBlockText exists for --------------------
     const multiline = await cdp.evaluate(`(() => {
-      const el = document.querySelector('#blocks .block.text') || document.querySelector('#blocks [contenteditable="true"]');
+      const el = document.querySelector('.page-stack .block.action[contenteditable="true"]')
+        || document.querySelector('.page-stack .block[contenteditable="true"]');
       if (!el) return { error: 'no block' };
       el.innerHTML = 'line one<br>line two';
       el.dispatchEvent(new Event('input', { bubbles: true }));

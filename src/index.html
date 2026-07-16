@@ -142,14 +142,8 @@
           <div class="stage" id="stage">
             <!-- Paper / script surface -->
             <div class="editor-scroll" id="editorScroll">
-              <div class="page-stack" id="pageStack">
-                <div class="page" id="page">
-                  <div class="page-edge" aria-hidden="true"></div>
-                  <div class="page-ink" aria-hidden="true"></div>
-                  <div class="page-number" id="pageNumber">1.</div>
-                  <div class="blocks" id="blocks"></div>
-                </div>
-              </div>
+              <!-- Multi-page paper stack built by app.js from Page[] (ADR-0006) -->
+              <div class="page-stack" id="pageStack"></div>
             </div>
             <!-- Full typewriter machine — paper seats into platen (typewriter focus only) -->
             <div id="typewriterStage" class="typewriter-stage" aria-hidden="true">

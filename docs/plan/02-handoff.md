@@ -40,7 +40,7 @@ Baseline is `f987d17` — the app exactly as inherited. Everything since is diff
   `tests/fixtures/golden-short.fountain`. Screen still one editable page surface;
   page *count* matches stats/PDF. Full multi-page paper stack is a follow-up.
 
-**Not done:** rest of app.js split, multi-page editor stack, wheel/timeline/board.
+**Not done:** rest of app.js split, wheel/timeline/board.
 
 ---
 
@@ -58,19 +58,22 @@ Landed. Design: `docs/architecture/store-design.md`.
   `cards.add`, `meta.setSettings`. `markDirty` is escape-hatch only. Rename-propagation
   (ADR-0003) still future.
 
-### 2. Pagination — the product fix ← DONE (engine + stats + PDF)
+### 2. Pagination — the product fix ← DONE (engine + stats + PDF + screen)
 
-Landed: pure `paginate()` / `wrap()`; stats + PDF agree by construction; golden fixture;
-Courier Prime in PDF; fonts.ready. **Still open:** render a real multi-page paper stack in
-the editor (today the count is correct; the DOM is still one infinite page).
+Landed: pure `paginate()` / `wrap()`; stats + PDF + screen share `Page[]`; golden fixture;
+Courier Prime in PDF; fonts.ready; multi-page paper stack (`views/script/page-layout.js`).
+Typing reflows only when page count changes (caret-safe). Synthetic MORE/CONT'D is chrome only.
 
 ### 3. Split `app.js` against the store ← IN PROGRESS
 
 Store catalogue complete enough for script/bible/cards/meta. Document mutations no longer
-use `markDirty`. **Next slice:** extract leaf modules (`views/script/*`, project I/O) one
-section at a time, smoke-verified per slice. Do not invent a temporary state-sharing scheme.
+use `markDirty`. Leaves extracted: `views/shared/text.js`, `views/script/page-layout.js`.
+**Next slice:** project I/O / more leaves, smoke-verified per slice.
 
-### 4. Multi-page editor stack (finish ADR-0006 screen consumer)
+### 4. Multi-page editor stack ← DONE (first-appearance assignment)
+Long dialogue stays one editable on the page it starts; PDF has true line splits.
+Optional polish: mid-page visual break markers inside a long block.
+
 ### 5. The wheel (Phase 2) → 6. Timeline (Phase 3) → 7. Board (Phase 4) → 8. Completeness (Phase 5)
 
 Detail for each in `01-roadmap.md`.

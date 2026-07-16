@@ -8,6 +8,11 @@ import {
   placeholderFor,
 } from './views/script/block-dom.js';
 import {
+  planPageStack,
+  captureSelection,
+  restoreSelection,
+} from './views/script/page-layout.js';
+import {
   escapeHtml,
   escapeAttr,
   safeColor,
@@ -37,6 +42,9 @@ import { createStore } from './core/store/index.js';
     acIndex: 0,
     acItems: [],
     autosaveTimer: null,
+    pageLayoutTimer: null,
+    /** Last laid-out page count — typing only reflows when this changes */
+    laidOutPageCount: 0,
     suppressDirty: false,
   };
 
@@ -126,7 +134,6 @@ import { createStore } from './core/store/index.js';
 
   const els = {
     welcome: $('#welcome'),
-    blocks: $('#blocks'),
     sceneList: $('#sceneList'),
     projectTitleLabel: $('#projectTitleLabel'),
     dirtyDot: $('#dirtyDot'),
@@ -141,7 +148,9 @@ import { createStore } from './core/store/index.js';
     replaceInput: $('#replaceInput'),
     ac: $('#ac'),
     workspace: $('#workspace'),
-    pageNumber: $('#pageNumber'),
+    pageStack: $('#pageStack'),
+    /** First page .blocks host — refreshed after each layout (legacy alias) */
+    blocks: null,
     cardsBoard: $('#cardsBoard'),
     charList: $('#charList'),
     locList: $('#locList'),
@@ -864,15 +873,184 @@ BLACKOUT.
   }
 
   function renderBlocks() {
-    const root = els.blocks;
-    // Preserve focus only if still present after rebuild
-    const keepId = state.activeBlockId;
-    root.innerHTML = '';
+    // Rebuild all editable rows, then distribute across paper pages from Page[].
+    const snap = captureSelection(els.pageStack);
+    /** @type {Map<string, HTMLElement>} */
+    const rowMap = new Map();
     for (const block of state.project.blocks) {
-      root.appendChild(createBlockRow(block));
+      rowMap.set(block.id, createBlockRow(block));
     }
-    // Do not auto-refocus here — callers that need focus call focusBlock
-    void keepId;
+    applyPageStack(rowMap);
+    restoreSelection(els.pageStack, snap);
+  }
+
+  /**
+   * Debounced re-layout after typing — only when page count changes so we
+   * never move the caret/DOM on ordinary keystrokes (ADR-0006).
+   * Structural edits use renderBlocks() which layouts immediately.
+   */
+  function schedulePageLayout() {
+    clearTimeout(state.pageLayoutTimer);
+    state.pageLayoutTimer = setTimeout(() => {
+      const n = E.pageCount(state.project.blocks || []);
+      if (n !== state.laidOutPageCount) {
+        reflowPageStack();
+      } else {
+        paintPageNumbers(n);
+      }
+    }, 280);
+  }
+
+  function reflowPageStack() {
+    if (!els.pageStack) return;
+    const snap = captureSelection(els.pageStack);
+    /** @type {Map<string, HTMLElement>} */
+    const rowMap = new Map();
+    els.pageStack.querySelectorAll('.block-row:not(.synthetic)').forEach((row) => {
+      if (row.dataset.id) rowMap.set(row.dataset.id, row);
+    });
+    // Ensure every model block has a row (new inserts may not be in DOM yet)
+    for (const block of state.project.blocks) {
+      if (!rowMap.has(block.id)) {
+        rowMap.set(block.id, createBlockRow(block));
+      }
+    }
+    // Drop rows for deleted blocks
+    for (const id of [...rowMap.keys()]) {
+      if (!getBlock(id)) rowMap.delete(id);
+    }
+    applyPageStack(rowMap);
+    restoreSelection(els.pageStack, snap);
+    paintPageNumbers(E.pageCount(state.project.blocks));
+  }
+
+  /**
+   * Build multi-page paper stack from planPageStack(paginate()).
+   * Moves (does not clone) editable block-row nodes into page .blocks hosts.
+   * @param {Map<string, HTMLElement>} rowMap
+   */
+  function applyPageStack(rowMap) {
+    const stack = els.pageStack;
+    if (!stack) return;
+
+    const pages = E.paginate(state.project.blocks || []);
+    const plan = planPageStack(pages);
+    const assigned = new Set();
+
+    // Detach rows before clearing so we can re-parent them
+    for (const row of rowMap.values()) {
+      row.remove();
+    }
+    stack.innerHTML = '';
+
+    for (const p of plan) {
+      const pageEl = createPageElement(p.number);
+      const host = pageEl.querySelector('.blocks');
+      if (p.showContd && p.contdText) {
+        host.appendChild(createSyntheticRow('character', p.contdText));
+      }
+      for (const id of p.blockIds) {
+        const row = rowMap.get(id);
+        if (row) {
+          host.appendChild(row);
+          assigned.add(id);
+        }
+      }
+      if (p.showMore) {
+        host.appendChild(createSyntheticRow('more', '(MORE)'));
+      }
+      stack.appendChild(pageEl);
+    }
+
+    // Unassigned model blocks (e.g. empty plan edge cases) → last page
+    let lastHost = stack.querySelector('.page:last-child .blocks');
+    if (!lastHost) {
+      const pageEl = createPageElement(1);
+      stack.appendChild(pageEl);
+      lastHost = pageEl.querySelector('.blocks');
+    }
+    for (const block of state.project.blocks || []) {
+      if (!assigned.has(block.id)) {
+        const row = rowMap.get(block.id);
+        if (row) lastHost.appendChild(row);
+      }
+    }
+
+    // Keep #blocks on the first host so smoke tests and legacy selectors work
+    const hosts = stack.querySelectorAll('.blocks');
+    hosts.forEach((h, i) => {
+      if (i === 0) h.id = 'blocks';
+      else h.removeAttribute('id');
+    });
+    els.blocks = stack.querySelector('#blocks') || stack.querySelector('.blocks');
+    state.laidOutPageCount = pages.length || 1;
+    paintPageNumbers(state.laidOutPageCount);
+  }
+
+  function createPageElement(number) {
+    const page = document.createElement('div');
+    page.className = 'page';
+    page.dataset.page = String(number);
+
+    const edge = document.createElement('div');
+    edge.className = 'page-edge';
+    edge.setAttribute('aria-hidden', 'true');
+
+    const ink = document.createElement('div');
+    ink.className = 'page-ink';
+    ink.setAttribute('aria-hidden', 'true');
+
+    const num = document.createElement('div');
+    num.className = 'page-number';
+    if (number < 2) {
+      num.hidden = true;
+      num.textContent = '';
+    } else {
+      num.textContent = `${number}.`;
+    }
+
+    const blocks = document.createElement('div');
+    blocks.className = 'blocks';
+
+    page.appendChild(edge);
+    page.appendChild(ink);
+    page.appendChild(num);
+    page.appendChild(blocks);
+    return page;
+  }
+
+  function createSyntheticRow(type, text) {
+    const row = document.createElement('div');
+    row.className = `block-row type-${type} synthetic`;
+    row.setAttribute('aria-hidden', 'true');
+    const gutter = document.createElement('div');
+    gutter.className = 'block-gutter';
+    gutter.contentEditable = 'false';
+    gutter.textContent = type === 'more' ? 'MORE' : 'CONT\'D';
+    const body = document.createElement('div');
+    body.className = `block ${type}`;
+    body.contentEditable = 'false';
+    body.textContent = text;
+    row.appendChild(gutter);
+    row.appendChild(body);
+    return row;
+  }
+
+  function paintPageNumbers(total) {
+    const pages = els.pageStack?.querySelectorAll('.page') || [];
+    pages.forEach((pageEl) => {
+      const n = Number(pageEl.dataset.page) || 1;
+      const numEl = pageEl.querySelector('.page-number');
+      if (!numEl) return;
+      if (n < 2) {
+        numEl.hidden = true;
+        numEl.textContent = '';
+      } else {
+        numEl.hidden = false;
+        numEl.textContent = `${n}.`;
+      }
+    });
+    void total;
   }
 
   /**
@@ -1277,6 +1455,8 @@ BLACKOUT.
       maybeShowAc(textEl, getBlock(id));
     }
     refreshStats();
+    // Paginate off the hot path; reflow pages without destroying the caret
+    schedulePageLayout();
     strikeTypebar();
   }
 
@@ -1535,11 +1715,15 @@ BLACKOUT.
     return state.project.blocks.findIndex((b) => b.id === id);
   }
   function blockEl(id) {
-    // The contentEditable text node only
-    return els.blocks.querySelector(`.block[data-id="${String(id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
+    // Search the whole paper stack (blocks live on multiple pages)
+    if (!id || !els.pageStack) return null;
+    const safe = String(id).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return els.pageStack.querySelector(`.block[data-id="${safe}"]`);
   }
   function blockRow(id) {
-    return els.blocks.querySelector(`.block-row[data-id="${String(id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
+    if (!id || !els.pageStack) return null;
+    const safe = String(id).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return els.pageStack.querySelector(`.block-row[data-id="${safe}"]`);
   }
 
   /* ---------- scenes sidebar ---------- */
@@ -1810,7 +1994,7 @@ BLACKOUT.
     $('#stWords').textContent = s.words;
     $('#stChars').textContent = s.characters;
     $('#stDlg').textContent = `${s.dialoguePct}%`;
-    els.pageNumber.textContent = `${Math.max(1, Math.round(s.pages))}.`;
+    paintPageNumbers(s.pages);
     const lint = E.lintScript(state.project);
     const warns = lint.issues.filter((i) => i.level === 'warn').length;
     const lintBit = warns ? ` · ${warns} format flag${warns > 1 ? 's' : ''}` : '';

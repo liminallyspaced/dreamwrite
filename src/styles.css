@@ -495,6 +495,9 @@ textarea { resize: vertical; min-height: 80px; }
 .page-stack {
   width: min(816px, 100%);
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
   transition: transform var(--dur) var(--ease), filter var(--dur) var(--ease), width var(--dur) var(--ease);
 }
 #app.focus-paper .page-stack {
@@ -580,6 +583,29 @@ textarea { resize: vertical; min-height: 80px; }
   color: #3a3a3a;
   z-index: 2;
   opacity: 0.7;
+}
+.page-number[hidden] {
+  display: none !important;
+}
+
+/* Synthetic pagination chrome — not editable, not in the model */
+.block-row.synthetic {
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
+}
+.block-row.synthetic .block {
+  min-height: 0;
+  caret-color: transparent;
+}
+.block-row.synthetic.type-more .block {
+  margin-left: 2.2in;
+  text-transform: uppercase;
+  color: #444;
+}
+.block-row.synthetic.type-character .block {
+  margin-left: 2.2in;
+  text-transform: uppercase;
 }
 
 /* Blocks — industry columns + Courier Prime */
