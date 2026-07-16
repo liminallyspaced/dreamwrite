@@ -25,7 +25,7 @@ describe('module surface', () => {
       'normalizeProject', 'characterBaseName', 'applyContd', 'lintScript',
       'toFountain', 'fromFountain', 'extractCharacters', 'extractLocations',
       'parseSceneHeading', 'autoCardsFromScenes', 'computeStats', 'toPdfHtml',
-      'pushHistory', 'estimatePages',
+      'pushHistory', 'estimatePages', 'paginate', 'pageCount',
     ];
     for (const name of required) {
       expect(E[name], `missing export: ${name}`).toBeDefined();
@@ -123,35 +123,43 @@ describe('Fountain round-trip', () => {
   });
 });
 
-describe('estimatePages — the heuristic being replaced (ADR-0006)', () => {
-  it('BUG: counts characters, not word-wrapped lines', () => {
-    // findings.md Crack 1 — engine.js:726 does Math.ceil(text.length / charsPerLine).
-    // Real text wraps at WORD boundaries, so a 35-col dialogue line rarely holds
-    // 35 chars. The error is systematic (always under-counts) and compounds.
-    //
-    // 35 single chars separated by spaces = 69 chars of text, but wraps to
-    // ~18 lines at 35 columns. The heuristic sees ceil(69/35) = 2.
-    const words = Array.from({ length: 35 }, () => 'x').join(' ');
-    const blocks = [E.createBlock('dialogue', words)];
-
-    const heuristicLines = Math.ceil(words.length / E.charsPerLine('dialogue'));
-    expect(heuristicLines).toBe(2); // what it thinks
-
-    // Greedy word-wrap at 35 cols gives 4 lines of "x x x x x x x x x x x x x x x x x"
-    // (17 words + 16 spaces = 33 chars). Nowhere near 2.
-    expect(E.estimatePages(blocks)).toBeLessThan(0.2);
+describe('pagination — ADR-0006 (fixed)', () => {
+  it('uses word-wrapped lines via paginate(), not char-count ceil', () => {
+    // Was: estimatePages used Math.ceil(text.length / cols) → systematic under-count.
+    // Now: same engine as PDF/stats (core/script/paginate.js).
+    const words = Array.from({ length: 100 }, () => 'x').join(' ');
+    const blocks = [
+      E.createBlock('character', 'A'),
+      E.createBlock('dialogue', words),
+    ];
+    const pages = E.paginate(blocks);
+    const diaLines = pages.flatMap((p) => p.rows).filter((r) => r.type === 'dialogue');
+    expect(diaLines.length).toBeGreaterThan(4);
+    expect(E.estimatePages(blocks)).toBe(pages.length);
+    expect(E.pageCount(blocks)).toBe(pages.length);
   });
 
-  it('FORMAT.linesPerPage is 55 — spec says 54 (pagination.md §2)', () => {
-    // Final Draft's KB derives 54 (9in x 6 lines/inch). Fix in Phase 1 with the
-    // golden-file test as arbiter; pinned here so the change is deliberate.
-    expect(E.FORMAT.linesPerPage).toBe(55);
+  it('FORMAT.linesPerPage is 54 (pagination.md §2 / FD KB)', () => {
+    expect(E.FORMAT.linesPerPage).toBe(54);
   });
 
   it('dialogue is 35 columns — spec CONFIRMS this is correct', () => {
     // Nicholl: dialogue margins left 2.5in / right 2.5in -> 3.5in -> 35 chars.
     // Do NOT "fix" this to 30. See pagination.md §3.
     expect(E.charsPerLine('dialogue')).toBe(35);
+  });
+
+  it('toPdfHtml embeds Courier Prime and page structure', () => {
+    const p = E.emptyProject();
+    p.blocks = [
+      E.createBlock('scene', 'INT. HOUSE - DAY'),
+      E.createBlock('action', 'Light.'),
+    ];
+    const html = E.toPdfHtml(p);
+    expect(html).toContain('Courier Prime');
+    expect(html).toContain('base64,');
+    expect(html).toContain('script-page');
+    expect(html).toContain('__platenFontsReady');
   });
 });
 

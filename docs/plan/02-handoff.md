@@ -33,7 +33,14 @@ Baseline is `f987d17` — the app exactly as inherited. Everything since is diff
   undo/redo via menu and Ctrl+Z/Y; revision restore is one undoable command.
   Design: `docs/architecture/store-design.md`. 88 unit tests; smoke 3× green.
 
-**Not done:** pagination (ADR-0006), rest of app.js split, wheel/timeline/board.
+**Also done (2026-07-16):**
+- **Pagination (ADR-0006)** — `core/script/{format,wrap,paginate}.js`; `computeStats` +
+  `toPdfHtml` consume the same `Page[]`; `FORMAT.linesPerPage` → **54**; Courier Prime
+  base64-embedded in PDF; `document.fonts.ready` in main PDF path; golden fixture
+  `tests/fixtures/golden-short.fountain`. Screen still one editable page surface;
+  page *count* matches stats/PDF. Full multi-page paper stack is a follow-up.
+
+**Not done:** rest of app.js split, multi-page editor stack, wheel/timeline/board.
 
 ---
 
@@ -49,17 +56,15 @@ Landed. Design: `docs/architecture/store-design.md`.
 - **Still:** snippets/bible/etc. use `markDirty` (may clear undo if project identity diverges).
   Prefer `exec()` for every new path. Rename-propagation (ADR-0003) still future.
 
-### 2. Pagination — the product fix ← START HERE
+### 2. Pagination — the product fix ← DONE (engine + stats + PDF)
 
-`docs/spec/pagination.md` is complete and source-cited, including a ready-to-type constants object (§6).
-The bug: three independent notions of "page," none the industry's (ADR-0006). The fix is **one**
-`paginate()` feeding screen + stats + PDF, so they agree by construction.
+Landed: pure `paginate()` / `wrap()`; stats + PDF agree by construction; golden fixture;
+Courier Prime in PDF; fonts.ready. **Still open:** render a real multi-page paper stack in
+the editor (today the count is correct; the DOM is still one infinite page).
 
-TDD this. It's a pure function of blocks → pages — exactly what TDD is good at. **The golden-file test
-(§8) is the acceptance gate**; without it you've only replaced one guess with another.
-
-### 3. Split `app.js` against the store
-### 4. The wheel (Phase 2) → 5. Timeline (Phase 3) → 6. Board (Phase 4) → 7. Completeness (Phase 5)
+### 3. Split `app.js` against the store ← START HERE
+### 4. Multi-page editor stack (finish ADR-0006 screen consumer)
+### 5. The wheel (Phase 2) → 6. Timeline (Phase 3) → 7. Board (Phase 4) → 8. Completeness (Phase 5)
 
 Detail for each in `01-roadmap.md`.
 

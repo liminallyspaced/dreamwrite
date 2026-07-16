@@ -5,16 +5,22 @@
  *
  * Spec (US Letter, Courier 12pt):
  *   Left 1.5" · Right 1" · Top 1" · Bottom 1"
- *   ~55 lines/page · ~1 page ≈ 1 screen minute
+ *   54 lines/page (FD KB: 9" × 6 lpi) · ~1 page ≈ 1 screen minute
  * Elements: Scene Heading, Action, Character, Parenthetical, Dialogue, Transition, Shot
+ *
+ * Pagination: core/script/paginate.js (ADR-0006) — one engine, three consumers.
  */
+
+import { paginate, pageCount } from './core/script/paginate.js';
+import { DEFAULT_FORMAT as PAGE_FORMAT } from './core/script/format.js';
+import { COURIER_PRIME_REGULAR_BASE64 } from './core/script/courier-prime-regular.js';
 
 const ELEMENTS = ['scene', 'action', 'character', 'parenthetical', 'dialogue', 'transition', 'shot', 'general', 'note'];
 
 /** Canonical industry layout (inches from page edge) */
 const FORMAT = {
   page: 'letter',
-  font: 'Courier',
+  font: 'Courier Prime',
   fontSizePt: 12,
   marginLeftIn: 1.5,
   marginRightIn: 1.0,
@@ -31,7 +37,8 @@ const FORMAT = {
     parentheticalWidth: 2.0,
     transition: 'right', // right-aligned in right margin area
   },
-  linesPerPage: 55,
+  /** 54 — Final Draft KB (9" × 6 lpi). Was wrongly 55. */
+  linesPerPage: 54,
   minutesPerPage: 1,
   maxCharacterCueLen: 38,
   timesOfDay: ['DAY', 'NIGHT', 'DAWN', 'DUSK', 'MORNING', 'EVENING', 'AFTERNOON', 'CONTINUOUS', 'LATER', 'SAME', 'MOMENTS LATER'],
@@ -788,9 +795,9 @@ function computeStats(project) {
     }
   }
 
-  // Rough industry estimate: ~55 lines / page, variable by element
-  const pages = estimatePages(blocks);
-  const runtimeMin = Math.max(1, Math.round(pages));
+  // ADR-0006: same engine as screen + PDF
+  const pages = pageCount(blocks);
+  const runtimeMin = Math.max(blocks.length ? 1 : 0, pages);
 
   return {
     words,
@@ -804,51 +811,24 @@ function computeStats(project) {
   };
 }
 
+/**
+ * @deprecated Use pageCount / paginate from core/script. Kept as a thin alias
+ * so older call sites keep working; returns integer page count (not the old
+ * char-count fraction).
+ */
 function estimatePages(blocks) {
-  // Industry rule of thumb: ~55 lines per page in Courier 12
-  let lines = 0;
-  for (const b of blocks) {
-    if (b.type === 'note') continue; // notes often omitted from page count
-    const text = b.text || '';
-    const hard = Math.max(text ? 1 : 0, text.split('\n').filter((l, i, a) => l || i < a.length - 1).length || (text ? 1 : 0));
-    const soft = text ? Math.ceil(text.length / charsPerLine(b.type)) : 0;
-    const blockLines = Math.max(hard, soft, text ? 1 : 0);
-    switch (b.type) {
-      case 'scene':
-        lines += 1 + 1; // slug + blank after
-        break;
-      case 'character':
-        lines += 1;
-        break;
-      case 'parenthetical':
-        lines += Math.max(1, blockLines);
-        break;
-      case 'dialogue':
-        lines += blockLines + 1; // + blank after speech
-        break;
-      case 'transition':
-        lines += 1 + 1;
-        break;
-      case 'shot':
-        lines += 1 + 1;
-        break;
-      default:
-        lines += blockLines + 1;
-    }
-  }
-  const pages = lines / FORMAT.linesPerPage;
-  return Math.max(pages > 0 ? 0.1 : 0, Math.round(pages * 10) / 10) || (blocks.length ? 1 : 0);
+  return pageCount(blocks || []);
 }
 
 function charsPerLine(type) {
-  // Courier 12 ≈ 10 cpi; widths from industry columns
+  // Courier 12 ≈ 10 cpi; widths from industry columns (pagination.md §3)
   switch (type) {
     case 'dialogue':
-      return 35; // ~3.5"
+      return 35; // ~3.5" — CORRECT; do not "fix" to 30
     case 'parenthetical':
-      return 25; // ~2.5"
+      return 29;
     case 'character':
-      return 30;
+      return 38;
     case 'transition':
       return 15;
     case 'scene':
@@ -871,10 +851,22 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * PDF HTML from the same Page[] as stats/screen (ADR-0006).
+ * Embeds Courier Prime (base64) — data: print origin cannot load ../assets/fonts/.
+ */
 function toPdfHtml(project) {
   const tp = project.titlePage || {};
-  const titleBlocks = `
-    <div class="title-page">
+  const pages = paginate(project.blocks || []);
+  const fontFace = `@font-face {
+    font-family: "Courier Prime";
+    src: url(data:font/truetype;base64,${COURIER_PRIME_REGULAR_BASE64}) format("truetype");
+    font-weight: 400;
+    font-style: normal;
+  }`;
+
+  const titlePage = `
+    <div class="sheet title-page">
       <div class="tp-title">${escapeHtml(tp.title || 'Untitled')}</div>
       <div class="tp-by">Written by</div>
       <div class="tp-author">${escapeHtml(tp.writtenBy || '')}</div>
@@ -883,94 +875,118 @@ function toPdfHtml(project) {
         <div>${escapeHtml(tp.draftDate || '')}</div>
         <div class="tp-contact">${escapeHtml(tp.contact || '').replace(/\n/g, '<br>')}</div>
       </div>
-    </div>
-    <div class="page-break"></div>
-  `;
+    </div>`;
 
-  const script = (project.blocks || [])
-    .map((b) => {
-      const text = escapeHtml(b.text || '').replace(/\n/g, '<br>');
-      switch (b.type) {
-        case 'scene':
-          return `<div class="el scene">${text || '&nbsp;'}</div>`;
-        case 'action':
-        case 'general':
-          return `<div class="el action">${text || '&nbsp;'}</div>`;
-        case 'character':
-          return `<div class="el character">${text || '&nbsp;'}</div>`;
-        case 'parenthetical':
-          return `<div class="el parenthetical">(${text.replace(/^\(|\)$/g, '')})</div>`;
-        case 'dialogue':
-          return `<div class="el dialogue">${text || '&nbsp;'}</div>`;
-        case 'transition':
-          return `<div class="el transition">${text || '&nbsp;'}</div>`;
-        case 'shot':
-          return `<div class="el shot">${text || '&nbsp;'}</div>`;
-        case 'note':
-          return `<div class="el note" style="font-style:italic;color:#555;border-left:2px solid #999;padding-left:8px">[[${text || ''}]]</div>`;
-        default:
-          return `<div class="el action">${text || '&nbsp;'}</div>`;
-      }
+  const scriptPages = pages
+    .map((page) => {
+      const num =
+        page.number >= (PAGE_FORMAT.pageNumber.startAt || 2)
+          ? `<div class="page-num">${escapeHtml(PAGE_FORMAT.pageNumber.format(page.number))}</div>`
+          : '';
+      const rows = page.rows
+        .map((row) => {
+          if (row.isBlank || row.type === 'blank') {
+            return `<div class="line blank">&nbsp;</div>`;
+          }
+          const cls = `line el-${escapeHtml(row.type)}`;
+          const text = escapeHtml(row.text || '') || '&nbsp;';
+          return `<div class="${cls}">${text}</div>`;
+        })
+        .join('\n');
+      return `<div class="sheet script-page" data-page="${page.number}">
+${num}
+<div class="body">${rows}</div>
+</div>`;
     })
     .join('\n');
 
-  // Margins applied via @page; element indents relative to content box
-  // Content width ≈ 8.5 - 1.5 - 1 = 6"
-  // Character at 3.7" from page edge = 2.2" into content
-  // Dialogue at 2.5" from edge = 1.0" into content
-  // Parenthetical at 3.1" from edge = 1.6" into content
+  // Indents from page left edge: content starts at 1.5" (marginLeft).
+  // character 3.7" → margin-left 2.2" inside body; dialogue 2.5" → 1.0"; etc.
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <style>
-  @page { size: letter; margin: 1in 1in 1in 1.5in; }
+  ${fontFace}
+  @page { size: letter; margin: 0; }
   * { box-sizing: border-box; }
-  body {
-    font-family: "Courier New", Courier, monospace;
-    font-size: 12pt;
-    line-height: 1;
-    color: #000;
+  html, body {
     margin: 0;
     padding: 0;
+    font-family: "Courier Prime", "Courier New", Courier, monospace;
+    font-size: 12pt;
+    line-height: 12pt;
+    color: #000;
   }
-  .title-page {
-    height: 9in;
+  .sheet {
+    width: 8.5in;
+    height: 11in;
+    page-break-after: always;
     position: relative;
-    text-align: center;
-    padding-top: 3.2in;
+    overflow: hidden;
   }
-  .tp-title { font-size: 12pt; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 1.2em; text-decoration: underline; }
+  .sheet:last-child { page-break-after: auto; }
+  .title-page {
+    text-align: center;
+    padding: 1in 1in 1in 1.5in;
+    padding-top: 3.5in;
+  }
+  .tp-title { text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 1.2em; text-decoration: underline; }
   .tp-by { margin-bottom: 0.4em; }
   .tp-author { margin-bottom: 1.5em; }
-  .tp-based { margin-top: 1em; font-size: 12pt; }
+  .tp-based { margin-top: 1em; }
   .tp-footer {
     position: absolute;
-    left: 0;
-    bottom: 0.5in;
+    left: 1.5in;
+    bottom: 1in;
     text-align: left;
     white-space: pre-wrap;
   }
   .tp-contact { margin-top: 1em; white-space: pre-wrap; }
-  .page-break { page-break-after: always; }
-  .script { padding: 0; }
-  .el { margin: 0 0 12pt 0; white-space: pre-wrap; word-wrap: break-word; }
-  .scene { text-transform: uppercase; margin-top: 24pt; margin-bottom: 12pt; }
-  .action { max-width: 6in; }
-  .character { margin-left: 2.2in; margin-bottom: 0; margin-top: 12pt; text-transform: uppercase; }
-  .parenthetical { margin-left: 1.6in; margin-bottom: 0; max-width: 2.0in; }
-  .dialogue { margin-left: 1.0in; margin-bottom: 0; max-width: 3.5in; }
-  .dialogue + .character, .parenthetical + .character { }
-  .transition { text-align: right; text-transform: uppercase; margin-top: 12pt; margin-bottom: 12pt; }
-  .shot { text-transform: uppercase; margin-top: 12pt; }
-  .note { font-style: italic; color: #444; border-left: 2px solid #999; padding-left: 8px; }
+  .script-page { padding: 0; }
+  /* Page number: grid line 3 = 0.5" from top, flush right at 7.5" */
+  .page-num {
+    position: absolute;
+    top: 0.5in;
+    right: 1in;
+    text-align: right;
+    width: 1in;
+  }
+  /* Body: first text line at 1.0" (grid line 7) */
+  .body {
+    position: absolute;
+    top: 1in;
+    left: 1.5in;
+    right: 1in;
+    height: 9in; /* 54 lines × 12pt */
+    overflow: hidden;
+  }
+  .line {
+    margin: 0;
+    padding: 0;
+    height: 12pt;
+    white-space: pre;
+    overflow: hidden;
+  }
+  .blank { height: 12pt; }
+  .el-scene { text-transform: uppercase; }
+  .el-shot { text-transform: uppercase; }
+  .el-character { margin-left: 2.2in; text-transform: uppercase; }
+  .el-more { margin-left: 2.2in; }
+  .el-parenthetical { margin-left: 1.6in; max-width: 2.9in; }
+  .el-dialogue { margin-left: 1.0in; max-width: 3.5in; }
+  .el-transition { text-align: right; text-transform: uppercase; }
+  .el-action, .el-general { max-width: 6in; }
 </style>
 </head>
 <body>
-${titleBlocks}
-<div class="script">
-${script}
-</div>
+${titlePage}
+${scriptPages}
+<script>
+  document.fonts.ready.then(function () {
+    window.__platenFontsReady = true;
+  });
+</script>
 </body>
 </html>`;
 }
@@ -1014,7 +1030,10 @@ export {
   computeStats,
   toPdfHtml,
   pushHistory,
+  /** @deprecated alias of pageCount — ADR-0006 */
   estimatePages,
+  pageCount,
+  paginate,
   // exported for tests — previously module-private
   charsPerLine,
   looksLikeScene,

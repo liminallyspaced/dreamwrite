@@ -254,7 +254,22 @@ ipcMain.handle('export:pdf', async (_e, { html, suggestedName }) => {
   });
   const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   await pdfWin.loadURL(dataUrl);
-  await new Promise((r) => setTimeout(r, 350));
+  // Wait for embedded @font-face (Courier Prime) — not a magic setTimeout race.
+  try {
+    await pdfWin.webContents.executeJavaScript(
+      `document.fonts.ready.then(function () { return true; })`,
+    );
+    // Extra ready ping if the print HTML sets the flag (toPdfHtml does).
+    await pdfWin.webContents.executeJavaScript(
+      `new Promise(function (resolve) {
+        if (window.__platenFontsReady) return resolve(true);
+        document.fonts.ready.then(function () { resolve(true); });
+        setTimeout(function () { resolve(true); }, 2000);
+      })`,
+    );
+  } catch {
+    // Font wait failed — still attempt PDF (better than aborting export).
+  }
   const pdf = await pdfWin.webContents.printToPDF({
     printBackground: true,
     pageSize: 'Letter',
