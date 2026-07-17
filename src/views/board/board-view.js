@@ -1,5 +1,5 @@
 /**
- * Infinite ink board — notes, scene cards, sub-boards, columns, templates.
+ * Infinite ink board — notes, scene cards, images, tables, sub-boards, templates.
  */
 import { createCamera, screenToWorldX, screenToWorldY, zoomAt, panBy } from '../../core/geom/camera.js';
 import {
@@ -9,6 +9,13 @@ import {
   uid as boardUid,
 } from '../../core/board/model.js';
 import { listTemplates } from '../../core/board/templates.js';
+import {
+  normalizeTable,
+  setCell as setTableCell,
+  resizeTable,
+  evaluateCellDisplay,
+} from '../../core/board/table.js';
+import { platenAssetUrl } from '../../core/project/format-v2.js';
 
 /**
  * @param {HTMLElement} root
@@ -16,6 +23,8 @@ import { listTemplates } from '../../core/board/templates.js';
  *   getProject: () => object,
  *   exec: Function,
  *   onJumpToScene: (id: string) => void,
+ *   importImage?: () => Promise<{ id: string, mime?: string, ext?: string } | null>,
+ *   assetUrl?: (hash: string, ext?: string) => string,
  * }} api
  */
 export function mountBoardView(root, api) {
@@ -32,6 +41,8 @@ export function mountBoardView(root, api) {
       <nav class="bd-crumbs" aria-label="Board path"></nav>
       <div class="bd-spacer"></div>
       <button type="button" class="primary-soft" data-bd="note">+ Note</button>
+      <button type="button" class="ghost" data-bd="image" title="Import image asset">+ Image</button>
+      <button type="button" class="ghost" data-bd="table" title="Add table card">+ Table</button>
       <button type="button" class="ghost" data-bd="sync" title="Place a card per scene">Sync scenes</button>
       <button type="button" class="ghost" data-bd="sub">+ Sub-board</button>
       <select class="bd-templates" title="Writing templates" aria-label="Templates">
@@ -44,7 +55,7 @@ export function mountBoardView(root, api) {
       <div class="bd-layer"></div>
       <div class="bd-empty" hidden>
         <p><strong>Empty board</strong></p>
-        <p class="muted">Double-click for a note · Sync scenes · or pick a template.</p>
+        <p class="muted">Double-click for a note · Image · Table · Sync scenes · or a template.</p>
       </div>
     </div>
   `;
@@ -146,12 +157,62 @@ export function mountBoardView(root, api) {
           )
           .join('');
         el.innerHTML = `<input class="bd-card-title" value="${escapeAttr(it.title || 'To-do')}" />${tasks}`;
+      } else if (it.type === 'image') {
+        const url =
+          it.assetId &&
+          (apiRef.assetUrl
+            ? apiRef.assetUrl(it.assetId, it.ext || '')
+            : platenAssetUrl(it.assetId, it.ext || ''));
+        el.innerHTML = `
+          <div class="bd-card-kicker">Image</div>
+          <input class="bd-card-title" value="${escapeAttr(it.title || 'Image')}" placeholder="Title" />
+          ${
+            url
+              ? `<img class="bd-image" src="${escapeAttr(url)}" alt="${escapeAttr(it.caption || it.title || 'Image')}" draggable="false" />`
+              : `<div class="bd-image-missing muted">No asset — re-import</div>`
+          }
+          <input class="bd-card-caption" value="${escapeAttr(it.caption || '')}" placeholder="Caption" />
+          <button type="button" class="ghost bd-replace-image">Replace…</button>
+        `;
+      } else if (it.type === 'table') {
+        const table = normalizeTable(it);
+        const rowsHtml = table.cells
+          .map((row, ri) => {
+            const cells = row
+              .map((cell, ci) => {
+                const display = evaluateCellDisplay(table, ri, ci);
+                if (cell.type === 'checkbox') {
+                  return `<td class="bd-td" data-r="${ri}" data-c="${ci}"><input type="checkbox" class="bd-cell-check" ${cell.value ? 'checked' : ''} /></td>`;
+                }
+                const shown =
+                  cell.type === 'number'
+                    ? String(cell.value ?? 0)
+                    : String(cell.value ?? '');
+                const formulaHint =
+                  cell.type === 'text' && String(cell.value || '').startsWith('=')
+                    ? ` title="= ${escapeAttr(String(display))}"`
+                    : '';
+                return `<td class="bd-td" data-r="${ri}" data-c="${ci}"${formulaHint}><input class="bd-cell" data-type="${escapeAttr(cell.type)}" value="${escapeAttr(shown)}" /></td>`;
+              })
+              .join('');
+            return `<tr>${cells}</tr>`;
+          })
+          .join('');
+        el.innerHTML = `
+          <div class="bd-card-kicker">Table</div>
+          <input class="bd-card-title" value="${escapeAttr(it.title || 'Table')}" placeholder="Table" />
+          <div class="bd-table-wrap"><table class="bd-table"><tbody>${rowsHtml}</tbody></table></div>
+          <div class="bd-table-tools">
+            <button type="button" class="ghost bd-tbl-add-row" title="Add row">+ Row</button>
+            <button type="button" class="ghost bd-tbl-add-col" title="Add column">+ Col</button>
+          </div>
+        `;
       } else {
         el.innerHTML = `<div class="bd-card-title-static">${escapeHtml(it.title || it.type)}</div>`;
       }
 
       el.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('input, textarea, button, label')) return;
+        if (e.target.closest('input, textarea, button, label, select, table, img')) return;
         if (e.button !== 0) return;
         e.stopPropagation();
         drag = {
@@ -184,6 +245,16 @@ export function mountBoardView(root, api) {
           );
         });
       }
+      const captionIn = el.querySelector('.bd-card-caption');
+      if (captionIn) {
+        captionIn.addEventListener('change', () => {
+          apiRef.exec(
+            'board.updateItem',
+            { id: it.id, patch: { caption: captionIn.value } },
+            { mergeKey: `bd:${it.id}:caption` }
+          );
+        });
+      }
       el.querySelector('.bd-open-scene')?.addEventListener('click', () => {
         if (it.sceneId) apiRef.onJumpToScene(it.sceneId);
       });
@@ -193,6 +264,92 @@ export function mountBoardView(root, api) {
           render();
         }
       });
+      el.querySelector('.bd-replace-image')?.addEventListener('click', async () => {
+        await replaceImageAsset(it.id);
+      });
+
+      if (it.type === 'table') {
+        el.querySelectorAll('.bd-cell').forEach((input) => {
+          input.addEventListener('change', () => {
+            const td = input.closest('.bd-td');
+            if (!td) return;
+            const r = +td.dataset.r;
+            const c = +td.dataset.c;
+            const type = input.dataset.type || 'text';
+            let value = input.value;
+            if (type === 'number') value = Number(value) || 0;
+            const table = normalizeTable(it);
+            const next = setTableCell(table, r, c, { type, value });
+            apiRef.exec(
+              'board.updateItem',
+              {
+                id: it.id,
+                patch: {
+                  rows: next.rows,
+                  cols: next.cols,
+                  cells: next.cells,
+                  colWidths: next.colWidths,
+                },
+              },
+              { mergeKey: `bd:${it.id}:cell:${r}:${c}` }
+            );
+            render();
+          });
+        });
+        el.querySelectorAll('.bd-cell-check').forEach((input) => {
+          input.addEventListener('change', () => {
+            const td = input.closest('.bd-td');
+            if (!td) return;
+            const r = +td.dataset.r;
+            const c = +td.dataset.c;
+            const table = normalizeTable(it);
+            const next = setTableCell(table, r, c, { type: 'checkbox', value: !!input.checked });
+            apiRef.exec(
+              'board.updateItem',
+              { id: it.id, patch: { cells: next.cells } },
+              { mergeKey: `bd:${it.id}:check:${r}:${c}` }
+            );
+          });
+        });
+        el.querySelector('.bd-tbl-add-row')?.addEventListener('click', () => {
+          const table = normalizeTable(it);
+          const next = resizeTable(table, table.rows + 1, table.cols);
+          apiRef.exec(
+            'board.updateItem',
+            {
+              id: it.id,
+              patch: {
+                rows: next.rows,
+                cols: next.cols,
+                cells: next.cells,
+                colWidths: next.colWidths,
+                h: Math.max(it.h || 120, next.rows * 36 + 56),
+              },
+            },
+            { label: 'Add table row' }
+          );
+          render();
+        });
+        el.querySelector('.bd-tbl-add-col')?.addEventListener('click', () => {
+          const table = normalizeTable(it);
+          const next = resizeTable(table, table.rows, table.cols + 1);
+          apiRef.exec(
+            'board.updateItem',
+            {
+              id: it.id,
+              patch: {
+                rows: next.rows,
+                cols: next.cols,
+                cells: next.cells,
+                colWidths: next.colWidths,
+                w: Math.max(it.w || 200, next.cols * 90),
+              },
+            },
+            { label: 'Add table column' }
+          );
+          render();
+        });
+      }
 
       if (it.type === 'sub-board') {
         el.addEventListener('dblclick', () => {
@@ -250,17 +407,85 @@ export function mountBoardView(root, api) {
     layer.appendChild(svg);
   }
 
+  function worldDropPoint() {
+    return {
+      x: Math.round(80 - cam.panX / cam.scale),
+      y: Math.round(80 - cam.panY / cam.scale),
+    };
+  }
+
+  async function replaceImageAsset(itemId) {
+    if (!apiRef.importImage) {
+      alert('Image import requires the DreamWrite desktop app.');
+      return;
+    }
+    const asset = await apiRef.importImage();
+    if (!asset?.id) return;
+    apiRef.exec(
+      'board.updateItem',
+      {
+        id: itemId,
+        patch: {
+          assetId: asset.id,
+          mime: asset.mime || 'image/png',
+          ext: asset.ext || '.png',
+        },
+      },
+      { label: 'Replace image' }
+    );
+    render();
+  }
+
   root.querySelector('[data-bd="note"]').onclick = () => {
     const boardId = ensureBoardId();
+    const pt = worldDropPoint();
     const item = createBoardItem('note', {
       id: boardUid('bit'),
       boardId,
-      x: Math.round(80 - cam.panX / cam.scale),
-      y: Math.round(80 - cam.panY / cam.scale),
+      x: pt.x,
+      y: pt.y,
       title: '',
       body: '',
     });
     apiRef.exec('board.addItem', { boardId, item }, { label: 'Add note' });
+    render();
+  };
+  root.querySelector('[data-bd="image"]').onclick = async () => {
+    if (!apiRef.importImage) {
+      alert('Image import requires the DreamWrite desktop app.');
+      return;
+    }
+    const asset = await apiRef.importImage();
+    if (!asset?.id) return;
+    const boardId = ensureBoardId();
+    const pt = worldDropPoint();
+    const item = createBoardItem('image', {
+      id: boardUid('bit'),
+      boardId,
+      x: pt.x,
+      y: pt.y,
+      assetId: asset.id,
+      mime: asset.mime || 'image/png',
+      ext: asset.ext || '.png',
+      title: asset.originalName || 'Image',
+    });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add image' });
+    render();
+  };
+  root.querySelector('[data-bd="table"]').onclick = () => {
+    const boardId = ensureBoardId();
+    const pt = worldDropPoint();
+    const item = createBoardItem('table', {
+      id: boardUid('bit'),
+      boardId,
+      x: pt.x,
+      y: pt.y,
+      rows: 3,
+      cols: 3,
+      title: 'Table',
+    });
+    // Seed a simple SUM demo formula in last cell optional — keep blank
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add table' });
     render();
   };
   root.querySelector('[data-bd="sync"]').onclick = () => {

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DreamWrite — Offline screenwriting</title>
+  <meta name="description" content="DreamWrite is offline carbon-black ink/paper screenwriting. Script, board, and timeline — no accounts, no cloud." />
+  <meta property="og:title" content="DreamWrite" />
+  <meta property="og:description" content="Offline screenwriting. One entity, three views. No accounts." />
+  <meta property="og:image" content="images/hero.jpg" />
+  <link rel="icon" href="images/icon.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="nav-brand" href="#top">
+        <img src="images/brand.png" alt="" width="32" height="32" />
+        DreamWrite
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#product">Product</a>
+        <a href="#install">Install</a>
+        <a href="#non-goals">Non-goals</a>
+        <a class="btn btn-primary" id="dl-primary" href="https://github.com/liminallyspaced/dreamwrite/releases/latest">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Offline · No accounts · Scripts stay yours</p>
+          <h1>Write the story.<br />Not the login screen.</h1>
+          <p class="lede">
+            DreamWrite is carbon-black ink-and-paper screenwriting:
+            industry format, board, and timeline as one workspace.
+            No subscriptions. No telemetry. No network by default.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://github.com/liminallyspaced/dreamwrite/releases/latest">Get DreamWrite</a>
+            <a class="btn btn-ghost" href="https://github.com/liminallyspaced/dreamwrite">Source on GitHub</a>
+          </div>
+          <p class="meta">Windows installer + portable · macOS DMG (via release) · MIT license</p>
+        </div>
+        <div class="hero-visual">
+          <img src="images/hero.jpg" alt="DreamWrite — paper on a dark desk" width="960" height="540" />
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="wrap">
+        <h2>Features</h2>
+        <p class="section-intro">
+          One entity, three views: a scene is a script block, a board card, and a timeline event.
+        </p>
+        <div class="features">
+          <article class="card">
+            <h3>Script</h3>
+            <p>Courier Prime on clean paper. Industry margins, 54 lines/page, CONT'D/MORE, Tab/Enter flow, multi-page stack, PDF with embedded font.</p>
+          </article>
+          <article class="card">
+            <h3>Pagination</h3>
+            <p>One pagination engine for screen, stats, and PDF — page count matches what you export.</p>
+          </article>
+          <article class="card">
+            <h3>Undo stack</h3>
+            <p>Full command history. Typing merges. Ctrl/Cmd+Z restores prose — nothing silent-deleted.</p>
+          </article>
+          <article class="card">
+            <h3>Marking wheel</h3>
+            <p>Middle-mouse hold for a ≤8-item contextual ring. Flick to mark, drag to pan, dead-zone cancel.</p>
+          </article>
+          <article class="card">
+            <h3>Timeline</h3>
+            <p>Integer ticks with display calendars (BBY/ABY bookends). Lane packing, scene sync, jump to script.</p>
+          </article>
+          <article class="card">
+            <h3>Board</h3>
+            <p>Infinite canvas: notes, scene-cards, nested boards, templates, connectors, image assets, tables.</p>
+          </article>
+          <article class="card">
+            <h3>Search &amp; bible</h3>
+            <p>Offline full-text across script, cast, timeline, and board. Characters &amp; locations scan from script.</p>
+          </article>
+          <article class="card">
+            <h3>Interop</h3>
+            <p>Fountain in/out · PDF · project folders with content-addressed assets · atomic saves · v1 files still open.</p>
+          </article>
+          <article class="card">
+            <h3>Offline by design</h3>
+            <p>No accounts, no cloud, no analytics. Projects live in Documents/DreamWrite on your machine.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="product">
+      <div class="wrap shot">
+        <div class="shot-frame">
+          <img src="images/app-shot.jpg" alt="DreamWrite interface concept" width="800" height="800" />
+        </div>
+        <div>
+          <h2>Built for the desk, not the dashboard</h2>
+          <p class="section-intro">Monochrome ink identity. Clean white paper. IBM Plex for chrome, Courier only on the page.</p>
+          <ul>
+            <li>Desk / Paper focus modes</li>
+            <li>Dark desk or light paper theme</li>
+            <li>Format check &amp; revision snapshots</li>
+            <li>Folder projects with <code>platen://</code> assets</li>
+            <li>Keyboard-first writing (see README)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="wrap">
+        <h2>Installation</h2>
+        <p class="section-intro">
+          Download the latest release for your OS. Unsigned mac builds: right-click → Open the first time.
+        </p>
+        <div class="install-grid">
+          <div class="install-card">
+            <div class="plat">Windows 10 / 11 · x64</div>
+            <h3>Installer or portable</h3>
+            <ol>
+              <li>Open the <a href="https://github.com/liminallyspaced/dreamwrite/releases/latest">latest GitHub release</a>.</li>
+              <li>Download <strong>DreamWrite-Setup-*.exe</strong> (recommended) or <strong>DreamWrite-Portable-*.exe</strong>.</li>
+              <li><strong>Setup:</strong> run the installer → choose folder → Start Menu + Desktop shortcuts.</li>
+              <li><strong>Portable:</strong> run the exe anywhere; no install required.</li>
+            </ol>
+            <a class="btn btn-primary" href="https://github.com/liminallyspaced/dreamwrite/releases/latest">Windows downloads</a>
+            <p class="note">SmartScreen may warn on unsigned builds — “More info” → Run anyway if you trust the source.</p>
+          </div>
+          <div class="install-card">
+            <div class="plat">macOS · Apple Silicon &amp; Intel</div>
+            <h3>DMG install</h3>
+            <ol>
+              <li>Open the <a href="https://github.com/liminallyspaced/dreamwrite/releases/latest">latest GitHub release</a>.</li>
+              <li>Download the <strong>.dmg</strong> for your chip (<code>arm64</code> or <code>x64</code>).</li>
+              <li>Open the DMG → drag <strong>DreamWrite</strong> into Applications.</li>
+              <li>First launch: right-click DreamWrite → <strong>Open</strong> → Open (Gatekeeper).</li>
+            </ol>
+            <a class="btn btn-primary" href="https://github.com/liminallyspaced/dreamwrite/releases/latest">macOS downloads</a>
+            <p class="note">Mac packages are built on macOS CI. If a release only has Windows assets, check Actions or build with <code>bash scripts/pack-mac.sh</code>.</p>
+          </div>
+        </div>
+
+        <div class="install-card" style="margin-top:16px">
+          <div class="plat">Developers</div>
+          <h3>Run from source</h3>
+<pre>git clone https://github.com/liminallyspaced/dreamwrite.git
+cd dreamwrite
+npm install
+npm start</pre>
+<pre># Windows package (installer + portable)
+npm run pack:win
+
+# macOS package (on a Mac)
+bash scripts/pack-mac.sh</pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="non-goals">
+      <div class="wrap">
+        <h2>Intentionally not included</h2>
+        <p class="section-intro">Keeping the product honest about scope.</p>
+        <div class="nongoals">
+          <article class="card">
+            <h3>Real-time collab</h3>
+            <p>Needs accounts and a server — conflicts with “scripts stay on your machine.”</p>
+          </article>
+          <article class="card">
+            <h3>Stock / Pexels</h3>
+            <p>Network by default is a non-goal. Assets are local and content-addressed.</p>
+          </article>
+          <article class="card">
+            <h3>Web clipper</h3>
+            <p>Separate deliverable if ever. Core app stays offline.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>DreamWrite · MIT · Not affiliated with Final Draft, WriterDuet, Celtx, or Milanote.</span>
+      <span>
+        <a href="https://github.com/liminallyspaced/dreamwrite">GitHub</a>
+        ·
+        <a href="https://github.com/liminallyspaced/dreamwrite/releases">Releases</a>
+      </span>
+    </div>
+  </footer>
+</body>
+</html>

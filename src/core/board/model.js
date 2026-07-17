@@ -33,7 +33,7 @@ export function emptyBoardGraph() {
 }
 
 /**
- * @param {'note'|'scene-card'|'column'|'sub-board'|'connector'|'todo'|'image'} type
+ * @param {'note'|'scene-card'|'column'|'sub-board'|'connector'|'todo'|'image'|'table'} type
  * @param {object} fields
  */
 export function createBoardItem(type, fields = {}) {
@@ -102,6 +102,41 @@ export function createBoardItem(type, fields = {}) {
         title: fields.title || 'To-do',
         tasks: fields.tasks || [{ id: uid('td'), text: '', done: false }],
       };
+    case 'image':
+      return {
+        ...base,
+        w: fields.w ?? 240,
+        h: fields.h ?? 180,
+        assetId: fields.assetId || null,
+        mime: fields.mime || 'image/png',
+        ext: fields.ext || '.png',
+        caption: fields.caption || '',
+        title: fields.title || 'Image',
+      };
+    case 'table': {
+      // Lazy import shape — avoid circular deps by inlining minimal grid
+      const rows = fields.rows ?? 3;
+      const cols = fields.cols ?? 3;
+      let cells = fields.cells;
+      if (!Array.isArray(cells)) {
+        cells = [];
+        for (let i = 0; i < rows; i++) {
+          const row = [];
+          for (let j = 0; j < cols; j++) row.push({ type: 'text', value: '' });
+          cells.push(row);
+        }
+      }
+      return {
+        ...base,
+        w: fields.w ?? Math.max(200, cols * 90),
+        h: fields.h ?? Math.max(120, rows * 36 + 40),
+        title: fields.title || 'Table',
+        rows,
+        cols,
+        cells,
+        colWidths: fields.colWidths || Array.from({ length: cols }, () => 88),
+      };
+    }
     default:
       return { ...base, title: fields.title || type };
   }

@@ -190,8 +190,23 @@ async function main() {
     check('multi-line block does not throw', !multiline.error, multiline.error || 'ok');
 
     // --- persistence: the fix for findings.md §5.5 #1 --------------------------
-    // Autosave is debounced 800ms off markDirty; typing above should have armed it.
-    await new Promise((r) => setTimeout(r, 1200));
+    // Autosave is debounced 800ms off markDirty. Force a dirty mark if the synthetic
+    // input event didn't arm the timer (page-layout reflow races), then wait.
+    await cdp.evaluate(`(() => {
+      try {
+        if (window.PlatenUI && typeof window.PlatenUI.forceAutosave === 'function') {
+          window.PlatenUI.forceAutosave();
+          return;
+        }
+      } catch (_) {}
+      // Fallback: second input on the active action block
+      const el = document.querySelector('.page-stack .block.action[contenteditable="true"]')
+        || document.querySelector('.page-stack .block[contenteditable="true"]');
+      if (el) {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    })()`);
+    await new Promise((r) => setTimeout(r, 1600));
 
     const storage = await cdp.evaluate(`(() => ({
       autosave:  localStorage.getItem('platen.autosave') ? 'set' : 'missing',

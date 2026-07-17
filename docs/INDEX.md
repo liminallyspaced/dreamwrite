@@ -48,6 +48,7 @@ Phase 2  Wheel      ★   DONE  marking menu · marks · ≤8 contextual rings
 Phase 3  Timeline   ★   DONE  ticks · BBY/ABY · lane pack · scene link
 Phase 4  Board      ★   DONE  nested boards · scene-cards · templates
 Phase 5  Complete       DONE* offline templates + search; collab/Pexels/clipper declined
+Enhance Format v2     DONE  folder packages · assets/ · platen:// · image + table cards
 ```
 
 \* Phase 5 ships offline completeness. Network features remain explicit non-goals (see handoff).

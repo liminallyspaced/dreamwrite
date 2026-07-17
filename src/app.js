@@ -26,6 +26,7 @@ import {
   sanitizeProject as sanitizeProjectData,
   exportReadyProject as exportReadyProjectData,
 } from './core/project/document.js';
+import { migrateV1Document, platenAssetUrl } from './core/project/format-v2.js';
 import { sampleFountain } from './core/project/sample.js';
 import { searchProject } from './core/project/search.js';
 import { createStore } from './core/store/index.js';
@@ -46,7 +47,6 @@ import { mountBoardView } from './views/board/board-view.js';
     activeBlockId: null,
     view: 'script',
     focusMode: false,
-    typewriterMode: false,
     findIndex: -1,
     acIndex: 0,
     acItems: [],
@@ -185,21 +185,12 @@ import { mountBoardView } from './views/board/board-view.js';
   /* ---------- bootstrap ---------- */
 
   function init() {
-    buildTypebars();
     bindUi();
     bindMenu();
     loadAutosaveOrWelcome();
     window.addEventListener('beforeunload', () => {
       if (state.dirty) persistLocal();
     });
-  }
-
-  function buildTypebars() {
-    /* typewriter is now a photoreal stage image — no CSS bars */
-  }
-
-  function strikeTypebar() {
-    /* key sounds handled in ui-chrome */
   }
 
   function bindUi() {
@@ -217,21 +208,20 @@ import { mountBoardView } from './views/board/board-view.js';
       boardAction: (cmd) => {
         setView('board');
         ensureBoardMounted();
-        if (cmd === 'note') {
-          const root = $('#boardRoot');
-          root?.querySelector('[data-bd="note"]')?.click();
-        } else if (cmd === 'sync') {
-          $('#boardRoot')?.querySelector('[data-bd="sync"]')?.click();
-        } else if (cmd === 'sub') {
-          $('#boardRoot')?.querySelector('[data-bd="sub"]')?.click();
-        }
+        const map = { note: 'note', image: 'image', table: 'table', sync: 'sync', sub: 'sub' };
+        const key = map[cmd];
+        if (key) $('#boardRoot')?.querySelector(`[data-bd="${key}"]`)?.click();
       },
       timelineAction: (cmd) => {
         setView('timeline');
         ensureTimelineMounted();
-        const map = { add: 'add', sync: 'sync', demo: 'demo', fit: 'fit' };
+        const map = { add: 'add', sync: 'sync', fit: 'fit' };
         const key = map[cmd];
         if (key) $('#timelineRoot')?.querySelector(`[data-tl="${key}"]`)?.click();
+      },
+      /** Test / recovery: write autosave now (bypasses debounce). */
+      forceAutosave: () => {
+        persistLocal();
       },
     };
 
@@ -244,10 +234,6 @@ import { mountBoardView } from './views/board/board-view.js';
     $('#btnTheme').onclick = () => toggleTheme();
     const bf = $('#btnFocus');
     if (bf) bf.onclick = () => window.PlatenChrome?.cycleFocus?.();
-    const bt = $('#btnTypewriter');
-    if (bt) bt.onclick = () => window.PlatenChrome?.setFocusMode?.('typewriter');
-    const exitTw = $('#btnExitTypewriter');
-    if (exitTw) exitTw.onclick = () => window.PlatenChrome?.setFocusMode?.('desk');
     $('#btnHelp').onclick = () => showHelp(true);
     $('#helpClose').onclick = () => showHelp(false);
     $('#helpModal').onclick = (e) => {
@@ -439,6 +425,9 @@ import { mountBoardView } from './views/board/board-view.js';
         case 'menu:open':
           openProject();
           break;
+        case 'menu:openFolder':
+          openProjectFolder();
+          break;
         case 'menu:save':
           saveProject(false);
           break;
@@ -477,9 +466,6 @@ import { mountBoardView } from './views/board/board-view.js';
           break;
         case 'menu:focus':
           window.PlatenChrome?.cycleFocus?.();
-          break;
-        case 'menu:typewriter':
-          toggleTypewriter();
           break;
         case 'menu:paper':
           window.PlatenChrome?.setFocusMode?.('paper');
@@ -565,46 +551,95 @@ import { mountBoardView } from './views/board/board-view.js';
     pullFromStore();
   }
 
-  async function openProject() {
-    if (!api) {
-      alert('File dialogs require the desktop app.');
-      return;
-    }
-    const res = await api.openProject();
+  /**
+   * Load IPC open result into the store.
+   * Supports v1 flat JSON, v2 folder packages, and Fountain.
+   */
+  async function adoptOpenResult(res) {
     if (!res) return;
-    const { filePath, content } = res;
+    const { filePath, content, kind, projectRoot } = res;
     let project;
-    if (filePath.toLowerCase().endsWith('.fountain') || filePath.toLowerCase().endsWith('.spmd')) {
+    const lower = String(filePath || '').toLowerCase();
+    if (lower.endsWith('.fountain') || lower.endsWith('.spmd')) {
       project = E.fromFountain(content, baseName(filePath));
     } else {
       try {
         const data = JSON.parse(content);
-        project = normalizeProject(data);
+        // Migrate v1 → v2 shape in memory only (never mutates the source file)
+        project = normalizeProject(migrateV1Document(data));
       } catch {
         project = E.fromFountain(content, baseName(filePath));
       }
     }
-    const keepPath =
-      filePath.toLowerCase().endsWith('.sdesk') ||
-      filePath.toLowerCase().endsWith('.platen') ||
-      filePath.toLowerCase().endsWith('.json')
-        ? filePath
-        : null;
+
+    let keepPath = null;
+    if (kind === 'v2-folder' || projectRoot) {
+      keepPath = projectRoot || filePath;
+      if (api?.setProjectRoot) {
+        try {
+          await api.setProjectRoot({ projectRoot: keepPath });
+        } catch {
+          /* non-fatal — assets may 404 until save */
+        }
+      }
+    } else if (
+      lower.endsWith('.sdesk') ||
+      lower.endsWith('.platen') ||
+      lower.endsWith('.json')
+    ) {
+      keepPath = filePath;
+      if (api?.setProjectRoot) {
+        try {
+          await api.setProjectRoot({ projectRoot: null });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
     adoptDocument(project, { filePath: keepPath, dirty: false });
     hideWelcome();
     fullRender();
   }
 
+  async function openProject() {
+    if (!api) {
+      alert('File dialogs require the desktop app.');
+      return;
+    }
+    try {
+      const res = await api.openProject();
+      await adoptOpenResult(res);
+    } catch (err) {
+      alert(`Could not open project.\n\n${err?.message || err}`);
+    }
+  }
+
+  async function openProjectFolder() {
+    if (!api?.openProjectFolder) {
+      alert('Folder open requires the desktop app.');
+      return;
+    }
+    try {
+      const res = await api.openProjectFolder();
+      await adoptOpenResult(res);
+    } catch (err) {
+      alert(`Could not open project folder.\n\n${err?.message || err}`);
+    }
+  }
+
   async function saveProject(saveAs) {
     if (!api) {
       persistLocal();
-      alert('Saved to local autosave. Use the Platen desktop app for real files.');
+      alert('Saved to local autosave. Use the DreamWrite desktop app for real files.');
       return;
     }
+    // Strip history for v2 disk shape when main will re-split; full project is fine for v1.
     const payload = {
       filePath: saveAs ? null : state.filePath,
       content: JSON.stringify(state.project, null, 2),
       suggestedName: slugify(state.project.titlePage?.title || 'untitled') + '.platen',
+      forceDialog: !!saveAs,
     };
 
     let res;
@@ -627,6 +662,13 @@ import { mountBoardView } from './views/board/board-view.js';
     store.setSession({ filePath: res.filePath, dirty: false });
     store.markClean();
     pullFromStore();
+    if (res.projectRoot && api?.setProjectRoot) {
+      try {
+        await api.setProjectRoot({ projectRoot: res.projectRoot });
+      } catch {
+        /* ignore */
+      }
+    }
     clearSaveAlert('file');
     updateChrome();
     persistLocal();
@@ -1439,7 +1481,6 @@ import { mountBoardView } from './views/board/board-view.js';
     refreshStats();
     // Paginate off the hot path; reflow pages without destroying the caret
     schedulePageLayout();
-    strikeTypebar();
   }
 
   function onBlockKeydown(e, id, textEl) {
@@ -2024,7 +2065,7 @@ import { mountBoardView } from './views/board/board-view.js';
   function updateChrome() {
     const title = state.project.titlePage?.title || 'Untitled Screenplay';
     els.projectTitleLabel.textContent = title;
-    document.title = `${state.dirty ? '• ' : ''}${title} — Platen`;
+    document.title = `${state.dirty ? '• ' : ''}${title} — DreamWrite`;
     els.dirtyDot.classList.toggle('on', state.dirty);
     els.statusPath.textContent = state.filePath
       ? state.filePath
@@ -2044,6 +2085,20 @@ import { mountBoardView } from './views/board/board-view.js';
         setView('script');
         focusBlock(blockId, true);
       },
+      /** Content-addressed image import (desktop). Returns { id, mime, ext } or null. */
+      importImage: async () => {
+        if (!api?.importImage) {
+          alert('Image import requires the DreamWrite desktop app.');
+          return null;
+        }
+        try {
+          return await api.importImage();
+        } catch (err) {
+          alert(`Could not import image.\n\n${err?.message || err}`);
+          return null;
+        }
+      },
+      assetUrl: (hash, ext) => platenAssetUrl(hash, ext || ''),
     };
   }
 
@@ -2058,6 +2113,7 @@ import { mountBoardView } from './views/board/board-view.js';
     const root = $('#boardRoot');
     if (!root) return;
     if (!boardApi) boardApi = mountBoardView(root, surfaceApi());
+    else boardApi.setApi?.(surfaceApi());
     boardApi.render();
   }
 
@@ -2136,27 +2192,25 @@ import { mountBoardView } from './views/board/board-view.js';
   }
 
   function applyTheme(theme) {
-    document.documentElement.classList.toggle('theme-light', theme === 'light');
-    document.documentElement.classList.toggle('theme-dark', theme !== 'light');
+    const light = theme === 'light';
+    document.documentElement.classList.toggle('theme-light', light);
+    document.documentElement.classList.toggle('theme-dark', !light);
+    // Label is the *next* action, not the focus-mode "Paper" pill
+    const btn = $('#btnTheme');
+    if (btn) {
+      btn.textContent = light ? 'Dark' : 'Light';
+      btn.title = light ? 'Switch to dark desk theme' : 'Switch to light paper theme';
+      btn.classList.toggle('active', light);
+    }
   }
 
   function toggleFocus() {
     window.PlatenChrome?.cycleFocus?.();
   }
 
-  function toggleTypewriter() {
-    const cur = window.PlatenChrome?.getFocus?.() || 'desk';
-    window.PlatenChrome?.setFocusMode?.(cur === 'typewriter' ? 'desk' : 'typewriter');
-  }
-
-  function setTypewriter(on) {
-    window.PlatenChrome?.setFocusMode?.(on ? 'typewriter' : 'desk');
-  }
-
   window.addEventListener('platen:focus', (e) => {
     const mode = e.detail?.mode;
-    state.typewriterMode = mode === 'typewriter';
-    state.focusMode = mode === 'paper' || mode === 'typewriter';
+    state.focusMode = mode === 'paper';
     if (mode !== 'desk') setView('script');
   });
 
@@ -2343,10 +2397,6 @@ import { mountBoardView } from './views/board/board-view.js';
       toggleTheme();
     }
     // F11 handled in ui-chrome for focus cycle
-    if (mod && e.shiftKey && e.key.toLowerCase() === 'w') {
-      e.preventDefault();
-      toggleTypewriter();
-    }
     if (mod && !e.shiftKey && e.key >= '1' && e.key <= '7') {
       const map = ['scene', 'action', 'character', 'parenthetical', 'dialogue', 'transition', 'shot'];
       if (state.activeBlockId) {

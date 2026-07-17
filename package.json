@@ -1,27 +1,41 @@
 {
-  "name": "platen",
-  "version": "1.1.0",
-  "description": "Platen — offline carbon-black typewriter screenwriting. No accounts.",
+  "name": "dreamwrite",
+  "version": "1.2.1",
+  "description": "DreamWrite — offline carbon-black ink/paper screenwriting. No accounts.",
   "main": "main.js",
   "author": "Nick",
   "license": "MIT",
+  "homepage": "https://github.com/liminallyspaced/dreamwrite",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liminallyspaced/dreamwrite.git"
+  },
   "scripts": {
     "build": "node build.js",
     "build:prod": "node build.js --prod",
+    "build:icons": "node scripts/build-icons.js",
     "dev": "node build.js --watch",
     "start": "node build.js && electron .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "node build.js && node tests/smoke/smoke.js",
     "test:all": "vitest run && node build.js && node tests/smoke/smoke.js",
-    "pack": "node build.js --prod && electron-builder --win portable",
-    "dist": "node build.js --prod && electron-builder --win portable dir"
+    "pack": "npm run pack:win",
+    "pack:win": "node build.js --prod && electron-builder --win nsis portable",
+    "pack:mac": "node build.js --prod && electron-builder --mac dmg zip",
+    "pack:linux": "node build.js --prod && electron-builder --linux AppImage deb",
+    "deploy:desktop": "powershell -ExecutionPolicy Bypass -File scripts/deploy-desktop.ps1",
+    "deploy:desktop:quick": "powershell -ExecutionPolicy Bypass -File scripts/deploy-desktop.ps1 -SkipBuild",
+    "dist": "npm run pack:win",
+    "dist:mac": "npm run pack:mac"
   },
   "build": {
-    "appId": "com.synth.platen",
-    "productName": "Platen",
+    "appId": "com.synth.dreamwrite",
+    "productName": "DreamWrite",
+    "copyright": "Copyright © 2026 Nick",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "main.js",
@@ -30,35 +44,98 @@
       "assets/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "assets/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "assets/icon.icns",
+        "to": "icon.icns"
+      },
+      {
+        "from": "assets/icon-256.png",
+        "to": "icon.png"
+      }
+    ],
     "win": {
       "icon": "assets/icon.ico",
       "signAndEditExecutable": false,
       "signDlls": false,
       "target": [
         {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "target": "nsis",
+          "arch": ["x64"]
         },
         {
-          "target": "dir",
-          "arch": [
-            "x64"
-          ]
+          "target": "portable",
+          "arch": ["x64"]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DreamWrite",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "DreamWrite-Setup-${version}.${ext}",
+      "license": "LICENSE"
     },
     "portable": {
-      "artifactName": "Platen-Portable.exe"
-    }
+      "artifactName": "DreamWrite-Portable-${version}.${ext}"
+    },
+    "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "CFBundleDisplayName": "DreamWrite",
+        "CFBundleName": "DreamWrite",
+        "NSHumanReadableCopyright": "Copyright © 2026 Nick"
+      }
+    },
+    "dmg": {
+      "title": "DreamWrite ${version}",
+      "artifactName": "DreamWrite-${version}-${arch}.dmg",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "icon": "assets/icon-256.png",
+      "category": "Office",
+      "target": ["AppImage", "deb"],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "publish": null
   },
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
+    "png2icons": "^2.0.1",
     "vitest": "^4.1.10",
     "ws": "^8.21.1"
   }

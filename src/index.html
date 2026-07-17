@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self' data:;" />
-  <title>Platen</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: platen: blob:; media-src 'self' platen: blob:; font-src 'self' data:;" />
+  <title>DreamWrite</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="../assets/icon-32.png" />
 </head>
@@ -16,7 +16,7 @@
         <button type="button" class="rail-toggle" id="btnToggleTop" title="Expand / collapse tools">▾</button>
         <div class="brand compact">
           <div class="brand-mark"><img src="../assets/brand-mark.png" alt="" /></div>
-          <span class="brand-name">Platen</span>
+          <span class="brand-name">DreamWrite</span>
         </div>
         <div class="slim-actions">
           <button class="ghost" id="btnNew" title="New">New</button>
@@ -30,8 +30,7 @@
         </div>
         <div class="focus-mode-group" title="Writing focus">
           <button type="button" class="mode-pill active" data-focus="desk" title="Desk — full chrome">Desk</button>
-          <button type="button" class="mode-pill" data-focus="paper" title="Paper focus — no typewriter">Paper</button>
-          <button type="button" class="mode-pill" data-focus="typewriter" title="Typewriter focus">Typewriter</button>
+          <button type="button" class="mode-pill" data-focus="paper" title="Paper focus — page only">Paper</button>
         </div>
         <button class="ghost" id="btnHelp" title="Help">?</button>
       </div>
@@ -52,9 +51,8 @@
             <button class="ghost view-btn" data-view="search">Search</button>
           </div>
           <div class="tb-grow"></div>
-          <button class="ghost" id="btnFind" title="Find">Find</button>
-          <button class="ghost" id="btnTheme" title="Paper / night">Paper</button>
-          <button class="ghost" id="btnSound" title="Toggle typing sounds">Sound</button>
+          <button class="ghost" id="btnFind" title="Find / replace (Ctrl+F)">Find</button>
+          <button class="ghost" id="btnTheme" title="Toggle dark desk / light paper theme">Theme</button>
         </div>
 
         <div id="formatRibbon" class="ribbon" role="toolbar" aria-label="Element format">
@@ -79,20 +77,16 @@
           <div class="ribbon-hint" id="ribbonHint">MMB: hold for wheel · flick to mark · drag to pan</div>
         </div>
 
-        <div id="snippetRibbon" class="snippet-bar" role="toolbar">
+        <div id="snippetRibbon" class="snippet-bar" role="toolbar" aria-label="Insert snippets">
           <span class="snip-label">Insert</span>
           <button type="button" class="snip-btn" data-snip="INT. ">INT.</button>
           <button type="button" class="snip-btn" data-snip="EXT. ">EXT.</button>
           <button type="button" class="snip-btn" data-snip="I/E. ">I/E.</button>
-          <button type="button" class="snip-btn" data-snip="EST. ">EST.</button>
           <span class="snip-dot"></span>
           <button type="button" class="snip-btn" data-snip=" - DAY">DAY</button>
           <button type="button" class="snip-btn" data-snip=" - NIGHT">NIGHT</button>
-          <button type="button" class="snip-btn" data-snip=" - DAWN">DAWN</button>
-          <button type="button" class="snip-btn" data-snip=" - DUSK">DUSK</button>
           <button type="button" class="snip-btn" data-snip=" - CONTINUOUS">CONT.</button>
           <button type="button" class="snip-btn" data-snip=" - LATER">LATER</button>
-          <button type="button" class="snip-btn" data-snip=" - SAME">SAME</button>
           <span class="snip-dot"></span>
           <button type="button" class="snip-btn accent" data-snip-scene="INT. LOCATION - DAY">INT·DAY</button>
           <button type="button" class="snip-btn accent" data-snip-scene="EXT. LOCATION - NIGHT">EXT·NIGHT</button>
@@ -100,9 +94,7 @@
           <button type="button" class="snip-btn" data-snip-line="FADE IN:" data-type="transition">FADE IN:</button>
           <button type="button" class="snip-btn" data-snip-line="CUT TO:" data-type="transition">CUT TO:</button>
           <button type="button" class="snip-btn" data-snip-line="FADE OUT." data-type="transition">FADE OUT.</button>
-          <button type="button" class="snip-btn" data-snip-line="SMASH CUT TO:" data-type="transition">SMASH</button>
           <button type="button" class="snip-btn" data-snip-line="DISSOLVE TO:" data-type="transition">DISSOLVE</button>
-          <button type="button" class="snip-btn" data-snip-line="BLACKOUT." data-type="transition">BLACKOUT</button>
           <span class="snip-dot"></span>
           <button type="button" class="snip-btn" data-snip-line="(V.O.)" data-type="character-suffix">V.O.</button>
           <button type="button" class="snip-btn" data-snip-line="(O.S.)" data-type="character-suffix">O.S.</button>
@@ -147,19 +139,6 @@
             <div class="editor-scroll" id="editorScroll">
               <!-- Multi-page paper stack built by app.js from Page[] (ADR-0006) -->
               <div class="page-stack" id="pageStack"></div>
-            </div>
-            <!-- Full typewriter machine — paper seats into platen (typewriter focus only) -->
-            <div id="typewriterStage" class="typewriter-stage" aria-hidden="true">
-              <div class="tw-vignette" aria-hidden="true"></div>
-              <div class="tw-machine">
-                <img
-                  class="tw-img"
-                  src="../assets/typewriter-full.png"
-                  alt="Typewriter"
-                  draggable="false"
-                  onerror="this.src='../assets/typewriter-full.jpg'"
-                />
-              </div>
             </div>
           </div>
         </section>
@@ -289,7 +268,7 @@
   <!-- Radial wheel (middle-mouse hold) -->
   <div id="radial" class="radial" aria-hidden="true">
     <div class="radial-ring" id="radialRing"></div>
-    <div class="radial-center" id="radialCenter">Platen</div>
+    <div class="radial-center" id="radialCenter">DreamWrite</div>
   </div>
 
   <div id="elementBadge"><strong id="badgeType">Action</strong> · Tab · Enter · MMB radial</div>
@@ -308,19 +287,15 @@
 
   <!-- legacy ids used by app -->
   <button id="btnFocus" hidden></button>
-  <button id="btnTypewriter" hidden></button>
-  <button id="btnExitTypewriter" hidden></button>
-  <div id="platenDeck" hidden></div>
-  <div id="typebars" hidden></div>
 
   <div id="welcome">
     <div class="welcome-card">
-      <div class="welcome-logo"><img src="../assets/icon-256.png" alt="Platen" /></div>
-      <h1>Platen</h1>
+      <div class="welcome-logo"><img src="../assets/welcome-logo.png" alt="DreamWrite" onerror="this.src='../assets/icon-256.png'" /></div>
+      <h1>DreamWrite</h1>
       <p>
-        Expandable tool rails. Desk / Paper / Typewriter focus.
+        Expandable tool rails. Desk / Paper focus.
         Hold <strong>middle mouse</strong> for the radial tool wheel.
-        Courier Prime · paper grain · ink edge · optional key sounds.
+        Courier Prime · paper grain · ink edge.
       </p>
       <div class="welcome-actions">
         <button class="primary" id="welcomeNew">New screenplay</button>
@@ -329,7 +304,7 @@
         <button class="ghost" id="welcomeSample">Load sample</button>
       </div>
       <div class="feature-grid">
-        <div><strong>Desk / Paper / Typewriter</strong>Three focus modes with motion</div>
+        <div><strong>Desk / Paper</strong>Two focus modes with motion</div>
         <div><strong>Radial wheel</strong>Hold middle-mouse for INT/EXT &amp; styles</div>
         <div><strong>Expand rails</strong>Top tools &amp; scene list collapse cleanly</div>
         <div><strong>Industry format</strong>Courier Prime · 1.5″ left · lint</div>
@@ -340,18 +315,20 @@
   <div class="modal-backdrop" id="helpModal">
     <div class="modal">
       <header>
-        <h3>Platen controls</h3>
+        <h3>DreamWrite controls</h3>
         <button class="ghost" id="helpClose">Close</button>
       </header>
       <div class="content">
         <table>
-          <tr><td>Desk / Paper / Typewriter</td><td>Focus modes (top right)</td></tr>
+          <tr><td>Desk / Paper</td><td>Focus modes (top right) — chrome vs page-only</td></tr>
+          <tr><td>Theme</td><td>Dark desk ↔ light paper look (not the same as Paper focus)</td></tr>
           <tr><td>▾ / › rail toggles</td><td>Expand or collapse top / left</td></tr>
-          <tr><td><kbd>Middle-mouse hold</kbd></td><td>Radial tool wheel</td></tr>
+          <tr><td><kbd>Middle-mouse hold</kbd></td><td>Radial wheel (≤8 items, context by element)</td></tr>
+          <tr><td><kbd>MMB flick</kbd></td><td>Expert mark without holding the wheel</td></tr>
+          <tr><td><kbd>MMB drag</kbd></td><td>Pan paper / board / timeline</td></tr>
           <tr><td><kbd>Tab</kbd> / <kbd>Enter</kbd></td><td>Cycle element / next line</td></tr>
           <tr><td><kbd>Ctrl+1…7</kbd></td><td>Element styles</td></tr>
-          <tr><td><kbd>F11</kbd></td><td>Cycle focus modes</td></tr>
-          <tr><td>Sound</td><td>Toggle typewriter key clicks</td></tr>
+          <tr><td><kbd>F11</kbd></td><td>Cycle Desk / Paper focus</td></tr>
         </table>
         <p style="margin-top:12px">US film format: Courier 12 · Letter · left 1.5″ · scene INT./EXT. LOCATION - DAY.</p>
       </div>

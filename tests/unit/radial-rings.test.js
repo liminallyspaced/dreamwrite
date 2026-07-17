@@ -5,19 +5,23 @@ import {
   activeRingItems,
   angleToIndex,
   markIndexFromVector,
+  ringRadiusForCount,
   SUBMENUS,
   MARK_MIN_PX,
 } from '../../src/views/chrome/radial-rings.js';
 
 describe('ringForContext', () => {
-  it('never exceeds 8 items', () => {
+  it('never exceeds 8 items and stays lean (≤7 for script roots)', () => {
     const types = ['scene', 'action', 'character', 'dialogue', 'parenthetical', 'transition', 'shot', 'note'];
     for (const elementType of types) {
       const ring = ringForContext({ view: 'script', elementType });
       expect(ring.length, elementType).toBeLessThanOrEqual(MAX_RING_ITEMS);
+      expect(ring.length, elementType).toBeLessThanOrEqual(7);
       expect(ring.length, elementType).toBeGreaterThan(0);
+      // No focus/view submenu clutter on script rings
+      expect(ring.some((i) => i.value === 'focus'), elementType).toBe(false);
     }
-    expect(ringForContext({ view: 'cards' }).length).toBeLessThanOrEqual(MAX_RING_ITEMS);
+    expect(ringForContext({ view: 'board' }).length).toBeLessThanOrEqual(MAX_RING_ITEMS);
     expect(ringForContext({ view: 'timeline' }).length).toBeLessThanOrEqual(MAX_RING_ITEMS);
   });
 
@@ -39,6 +43,11 @@ describe('ringForContext', () => {
     const a = ringForContext({ view: 'script', elementType: 'action' });
     const u = ringForContext({ view: 'script', elementType: 'weird' });
     expect(u.map((i) => i.id)).toEqual(a.map((i) => i.id));
+  });
+
+  it('widens orbit for fuller rings', () => {
+    expect(ringRadiusForCount(4)).toBeLessThan(ringRadiusForCount(6));
+    expect(ringRadiusForCount(6)).toBeLessThan(ringRadiusForCount(8));
   });
 });
 

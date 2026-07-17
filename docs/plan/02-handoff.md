@@ -24,13 +24,15 @@ Read `docs/INDEX.md` first.
 |-------|----------------|
 | **3 Timeline** | `core/geom/{camera,pack}` · `core/timeline/{calendar,model}` · view with BBY/ABY ticks · lane packing · scene sync · demo eras · jump to scene |
 | **4 Board** | Nested boards + breadcrumbs · notes · scene-cards · columns · connectors · templates · free camera · `assertPathAllowed` on fs IPC |
-| **5 Completeness** | Templates (3-act, Save the Cat, Hero’s Journey, character, story map) · offline search · WebAudio key pool · honest non-goals documented |
+| **5 Completeness** | Templates (3-act, Save the Cat, Hero’s Journey, character, story map) · offline search · honest non-goals documented |
+
+**Enhancements (post-MVP, not missing phases):**
+- **Format v2 folders + image assets + table cards** — implemented (ADR-0004): folder package, content-addressed `assets/`, `platen://`, board image/table cards
 
 **Still future / intentionally not built:**
 - Real-time collab (accounts/server — **don't**, product premise)
 - Pexels (opt-in only if ever) · web clipper (separate deliverable)
-- Full Milanote parity (tables, sketch, embeds, image crop) — core offline board is shippable
-- Format v2 folder assets (ADR-0004) — not required for timeline/board MVP
+- Full Milanote parity (sketch, embeds, image crop) — core offline board + tables/images is shippable
 - Locked pagination A-pages · relative timeline dependencies
 
 ---
@@ -40,8 +42,9 @@ Read `docs/INDEX.md` first.
 1. Store + pagination + multi-page + wheel — **DONE**
 2. Timeline + geom kernel — **DONE**
 3. Board + templates + search — **DONE**
-4. **Polish / production:** portable pack, manual PDF check, more app.js split if desired
-5. Optional: format v2 assets, clipper, Pexels opt-in
+4. Format v2 folders + assets + table cards — **DONE** (enhancement)
+5. **Polish / production:** portable pack, manual PDF check, more app.js split if desired
+6. Optional: clipper, Pexels opt-in
 
 ---
 
@@ -75,6 +78,9 @@ Read `docs/INDEX.md` first.
 - `npm run test:smoke` ×3 after load-order / bundle changes
 - Timeline: Sync scenes → click pill → lands in script
 - Board: Sync scenes → open scene card → script; apply template
+- Board: + Image (import → `platen://` preview) · + Table (edit cells, =SUM)
+- Save As → folder `Name.platen/` with `project.json` + `assets/`; Open Project Folder works
+- v1 flat `.platen` still opens; Save keeps v1 path (never migrate in place)
 - Search: find text across script
 - PDF: export, open, Courier Prime, page numbers
 

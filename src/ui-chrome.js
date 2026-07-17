@@ -1,11 +1,13 @@
 /**
- * Platen chrome: expandable rails, focus modes, radial marking menu (MMB), typing sounds.
+ * DreamWrite chrome: expandable rails, focus modes, radial marking menu (MMB).
  * Radial rings: views/chrome/radial-rings.js (ADR-0005 / Phase 2).
+ * No typing / UI sound effects (removed by product choice).
  */
 import {
   activeRingItems,
   angleToIndex,
   markIndexFromVector,
+  ringRadiusForCount,
   RADIAL_DEAD_ZONE_PX,
   MARK_MIN_PX,
   PAN_SLOP_PX,
@@ -19,8 +21,7 @@ import {
   const state = {
     topExpanded: true,
     leftExpanded: true,
-    focus: 'desk', // desk | paper | typewriter
-    sound: true,
+    focus: 'desk', // desk | paper
     radialOpen: false,
     /** -1 = dead-zone / no selection — never default to Scene (Crack 4) */
     radialIndex: -1,
@@ -33,94 +34,6 @@ import {
     mmbPanning: false,
     holdTimer: null,
   };
-
-  // --- Sounds (WebAudio pool — Phase 2 remainder) ---
-  const audioCache = {};
-  /** @type {AudioContext | null} */
-  let audioCtx = null;
-  /** @type {Map<string, AudioBuffer>} */
-  const bufferPool = new Map();
-
-  function soundUrl(name) {
-    return `../assets/sounds/${name}`;
-  }
-
-  function getAudioCtx() {
-    if (!audioCtx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) audioCtx = new AC();
-    }
-    return audioCtx;
-  }
-
-  async function loadBuffer(name) {
-    if (bufferPool.has(name)) return bufferPool.get(name);
-    const ctx = getAudioCtx();
-    if (!ctx) return null;
-    try {
-      const res = await fetch(soundUrl(name));
-      const ab = await res.arrayBuffer();
-      const buf = await ctx.decodeAudioData(ab.slice(0));
-      bufferPool.set(name, buf);
-      return buf;
-    } catch {
-      return null;
-    }
-  }
-
-  function playSound(name, volume = 0.35) {
-    if (!state.sound) return;
-    const ctx = getAudioCtx();
-    if (ctx) {
-      // Prefer pooled WebAudio (no per-key cloneNode thrash)
-      loadBuffer(name).then((buf) => {
-        if (!buf || !state.sound) return;
-        try {
-          if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-          const src = ctx.createBufferSource();
-          const gain = ctx.createGain();
-          gain.gain.value = Math.min(1, volume);
-          src.buffer = buf;
-          src.connect(gain);
-          gain.connect(ctx.destination);
-          src.start(0);
-        } catch {
-          /* fall through */
-        }
-      });
-      return;
-    }
-    // Fallback: HTMLAudioElement
-    try {
-      let a = audioCache[name];
-      if (!a) {
-        a = new Audio(soundUrl(name));
-        audioCache[name] = a;
-      }
-      const clone = a.cloneNode();
-      clone.volume = Math.min(1, volume);
-      clone.play().catch(() => {});
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function playKey(e) {
-    if (!state.sound) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'Enter') {
-      playSound('enter.wav', 0.4);
-      return;
-    }
-    if (e.key === ' ') {
-      playSound('space.wav', 0.22);
-      return;
-    }
-    if (e.key.length === 1) {
-      const n = 1 + Math.floor(Math.random() * 5);
-      playSound(`key${n}.wav`, 0.22 + Math.random() * 0.12);
-    }
-  }
 
   // --- Rails ---
   function applyRails() {
@@ -135,7 +48,9 @@ import {
   }
 
   function setFocusMode(mode, { silent = false } = {}) {
-    const next = ['desk', 'paper', 'typewriter'].includes(mode) ? mode : 'desk';
+    // typewriter focus removed — map legacy value to desk
+    const raw = mode === 'typewriter' ? 'desk' : mode;
+    const next = ['desk', 'paper'].includes(raw) ? raw : 'desk';
     if (next === state.focus && !silent) return;
     state.focus = next;
     app.classList.remove('focus-desk', 'focus-paper', 'focus-typewriter');
@@ -143,10 +58,8 @@ import {
     document.querySelectorAll('.mode-pill').forEach((b) => {
       b.classList.toggle('active', b.dataset.focus === next);
     });
-    const stage = document.getElementById('typewriterStage');
-    if (stage) stage.setAttribute('aria-hidden', next === 'typewriter' ? 'false' : 'true');
 
-    if (next === 'paper' || next === 'typewriter') {
+    if (next === 'paper') {
       state.topExpanded = false;
       state.leftExpanded = false;
       applyRails();
@@ -155,18 +68,11 @@ import {
       state.leftExpanded = true;
       applyRails();
     }
-    if (!silent) playSound('mode.wav', 0.28);
-    requestAnimationFrame(() => {
-      const scroll = document.getElementById('editorScroll');
-      if (scroll && next === 'typewriter') {
-        scroll.scrollTop = Math.max(0, scroll.scrollHeight * 0.15);
-      }
-    });
     window.dispatchEvent(new CustomEvent('platen:focus', { detail: { mode: next } }));
   }
 
   function cycleFocus() {
-    const order = ['desk', 'paper', 'typewriter'];
+    const order = ['desk', 'paper'];
     const i = order.indexOf(state.focus);
     setFocusMode(order[(i + 1) % order.length]);
   }
@@ -193,7 +99,8 @@ import {
     const items = loadRingItems();
     ring.innerHTML = '';
     const n = items.length;
-    const R = 118;
+    // Wider orbit when fuller — avoids 8 wedges stuck on top of each other
+    const R = ringRadiusForCount(n);
     items.forEach((item, i) => {
       const ang = n ? (i / n) * Math.PI * 2 - Math.PI / 2 : 0;
       const x = Math.cos(ang) * R;
@@ -255,14 +162,12 @@ import {
     radial.style.left = `${clientX}px`;
     radial.style.top = `${clientY}px`;
     clearRadialHighlight();
-    playSound('radial.wav', 0.3);
   }
 
   function openSubmenu(key) {
     state.submenuKey = key;
     buildRadial();
     clearRadialHighlight();
-    playSound('radial.wav', 0.15);
   }
 
   function closeRadial({ apply = false } = {}) {
@@ -289,7 +194,6 @@ import {
       state.submenuKey = null;
       buildRadial();
       clearRadialHighlight();
-      playSound('radial.wav', 0.12);
       return;
     }
     if (item.action === 'noop') return;
@@ -328,7 +232,6 @@ import {
       return false;
     }
     activateRadialItem(item);
-    playSound('radial.wav', 0.2);
     return true;
   }
 
@@ -350,34 +253,19 @@ import {
     document.getElementById('btnToggleTop')?.addEventListener('click', () => {
       state.topExpanded = !state.topExpanded;
       applyRails();
-      playSound('radial.wav', 0.15);
     });
     document.getElementById('btnToggleLeft')?.addEventListener('click', () => {
       state.leftExpanded = !state.leftExpanded;
       applyRails();
-      playSound('radial.wav', 0.15);
     });
 
     document.querySelectorAll('.mode-pill').forEach((btn) => {
       btn.addEventListener('click', () => setFocusMode(btn.dataset.focus));
     });
 
-    const soundBtn = document.getElementById('btnSound');
-    if (soundBtn) {
-      soundBtn.classList.toggle('active', state.sound);
-      soundBtn.addEventListener('click', () => {
-        state.sound = !state.sound;
-        soundBtn.classList.toggle('active', state.sound);
-        soundBtn.textContent = state.sound ? 'Sound' : 'Muted';
-        if (state.sound) playSound('key3.wav', 0.3);
-      });
-    }
-
     document.addEventListener(
       'keydown',
       (e) => {
-        const t = e.target;
-        if (t && t.classList && t.classList.contains('block')) playKey(e);
         if (e.key === 'F11') {
           e.preventDefault();
           cycleFocus();
@@ -476,8 +364,6 @@ import {
     window.PlatenChrome = {
       setFocusMode,
       cycleFocus,
-      playSound,
-      isSoundOn: () => state.sound,
       getFocus: () => state.focus,
       rebuildRadial: () => {
         if (state.radialOpen) buildRadial();

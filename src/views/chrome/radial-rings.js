@@ -1,14 +1,14 @@
 /**
  * Marking-menu ring payloads — pure, no DOM.
- * ≤8 items per ring (Kurtenbach & Buxton). Contextual by element / view.
+ * ≤8 items per ring (Kurtenbach & Buxton). Prefer 5–6 for readability.
+ * Contextual by element / view — most-used only; rare options stay on ribbons.
  *
  * @see docs/architecture/decisions/0005-marking-menu-and-mmb-collision.md
- * @see docs/plan/01-roadmap.md Phase 2
  */
 
 export const MAX_RING_ITEMS = 8;
-export const RADIAL_DEAD_ZONE_PX = 36;
-export const MARK_MIN_PX = 48; // expert flick distance before timer
+export const RADIAL_DEAD_ZONE_PX = 40;
+export const MARK_MIN_PX = 52;
 export const PAN_SLOP_PX = 6;
 export const RADIAL_HOLD_MS = 140;
 
@@ -16,23 +16,24 @@ export const RADIAL_HOLD_MS = 140;
  * @typedef {{
  *   id: string,
  *   label: string,
- *   action: 'element'|'snip'|'line'|'focus'|'submenu'|'submenu-back'|'noop',
+ *   action: 'element'|'snip'|'line'|'focus'|'submenu'|'submenu-back'|'noop'|'board'|'view'|'timeline',
  *   value?: string,
  *   type?: string,
  *   forceScene?: boolean,
  * }} RadialItem
  */
 
-/** @type {Record<string, RadialItem[]>} */
+/**
+ * Submenus stay ≤8 and include Back. Only high-frequency extras.
+ * @type {Record<string, RadialItem[]>}
+ */
 export const SUBMENUS = {
   timeOfDay: [
     { id: 'dawn', label: 'DAWN', action: 'snip', value: ' - DAWN' },
     { id: 'dusk', label: 'DUSK', action: 'snip', value: ' - DUSK' },
-    { id: 'morning', label: 'A.M.', action: 'snip', value: ' - MORNING' },
-    { id: 'evening', label: 'P.M.', action: 'snip', value: ' - EVENING' },
     { id: 'later', label: 'LATER', action: 'snip', value: ' - LATER' },
     { id: 'same', label: 'SAME', action: 'snip', value: ' - SAME' },
-    { id: 'moments', label: 'MOMENT', action: 'snip', value: ' - MOMENTS LATER' },
+    { id: 'cont', label: 'CONT.', action: 'snip', value: ' - CONTINUOUS' },
     { id: 'back', label: '◂ Back', action: 'submenu-back' },
   ],
   transitions: [
@@ -40,14 +41,6 @@ export const SUBMENUS = {
     { id: 'fadeout', label: 'FADE OUT', action: 'line', value: 'FADE OUT.', type: 'transition' },
     { id: 'dissolve', label: 'DISSOLVE', action: 'line', value: 'DISSOLVE TO:', type: 'transition' },
     { id: 'smash', label: 'SMASH', action: 'line', value: 'SMASH CUT TO:', type: 'transition' },
-    { id: 'match', label: 'MATCH', action: 'line', value: 'MATCH CUT TO:', type: 'transition' },
-    { id: 'intercut', label: 'INTERCUT', action: 'line', value: 'INTERCUT WITH:', type: 'transition' },
-    { id: 'back', label: '◂ Back', action: 'submenu-back' },
-  ],
-  focus: [
-    { id: 'desk', label: 'Desk', action: 'focus', value: 'desk' },
-    { id: 'paper', label: 'Paper', action: 'focus', value: 'paper' },
-    { id: 'type', label: 'Type', action: 'focus', value: 'typewriter' },
     { id: 'back', label: '◂ Back', action: 'submenu-back' },
   ],
 };
@@ -61,7 +54,7 @@ export const SUBMENUS = {
  */
 export function ringForContext(ctx = {}) {
   const view = ctx.view || 'script';
-  if (view === 'cards') return clampRing(boardRing());
+  if (view === 'cards' || view === 'board') return clampRing(boardRing());
   if (view === 'timeline') return clampRing(timelineRing());
   return clampRing(scriptRing(ctx.elementType || 'action'));
 }
@@ -79,13 +72,13 @@ export function activeRingItems(ctx, submenuKey = null) {
 }
 
 /**
- * Map pointer angle (atan2 style, 0 = east, CCW) to ring index.
- * Uses same convention as the chrome: angle = atan2(dy,dx) + π/2 so 0 is up.
+ * Map pointer angle to ring index.
+ * 0 = up (atan2(dy,dx) + π/2).
  *
- * @param {number} dx  clientX - centerX
- * @param {number} dy  clientY - centerY
- * @param {number} n   item count
- * @returns {number} index 0..n-1, or -1 if n < 1
+ * @param {number} dx
+ * @param {number} dy
+ * @param {number} n
+ * @returns {number}
  */
 export function angleToIndex(dx, dy, n) {
   if (n < 1) return -1;
@@ -95,13 +88,23 @@ export function angleToIndex(dx, dy, n) {
 }
 
 /**
- * Expert mark: distance past MARK_MIN from origin → sector index.
- * @returns {number} index or -1 if too short / empty ring
+ * Expert mark: distance past MARK_MIN → sector index.
+ * @returns {number}
  */
 export function markIndexFromVector(dx, dy, n, minPx = MARK_MIN_PX) {
   const dist = Math.hypot(dx, dy);
   if (dist < minPx || n < 1) return -1;
   return angleToIndex(dx, dy, n);
+}
+
+/**
+ * Orbit radius for n items — wider when fuller so wedges don't bunch.
+ * @param {number} n
+ */
+export function ringRadiusForCount(n) {
+  if (n <= 4) return 108;
+  if (n <= 6) return 132;
+  return 152;
 }
 
 /** @param {RadialItem[]} items */
@@ -111,30 +114,31 @@ function clampRing(items) {
   return items.slice(0, MAX_RING_ITEMS);
 }
 
-/** @param {string} type */
+/**
+ * Script rings: writing flow only. No View/Focus (already on top chrome).
+ * Target 5–7 items so MMB sectors stay wide.
+ * @param {string} type
+ */
 function scriptRing(type) {
   switch (type) {
     case 'scene':
+      // Scene heading: location type + time + leave for action/dialogue
       return [
         { id: 'int', label: 'INT.', action: 'snip', value: 'INT. ', forceScene: true },
         { id: 'ext', label: 'EXT.', action: 'snip', value: 'EXT. ', forceScene: true },
         { id: 'day', label: 'DAY', action: 'snip', value: ' - DAY' },
         { id: 'night', label: 'NIGHT', action: 'snip', value: ' - NIGHT' },
-        { id: 'cont', label: 'CONT.', action: 'snip', value: ' - CONTINUOUS' },
         { id: 'time', label: 'Time ▸', action: 'submenu', value: 'timeOfDay' },
         { id: 'action', label: 'Action', action: 'element', value: 'action' },
-        { id: 'char', label: 'Char', action: 'element', value: 'character' },
       ];
     case 'character':
       return [
         { id: 'vo', label: 'V.O.', action: 'line', value: '(V.O.)', type: 'character-suffix' },
         { id: 'os', label: 'O.S.', action: 'line', value: '(O.S.)', type: 'character-suffix' },
-        { id: 'oc', label: 'O.C.', action: 'line', value: '(O.C.)', type: 'character-suffix' },
         { id: 'contd', label: "CONT'D", action: 'line', value: "(CONT'D)", type: 'character-suffix' },
         { id: 'dlg', label: 'Dial', action: 'element', value: 'dialogue' },
         { id: 'paren', label: '( )', action: 'element', value: 'parenthetical' },
         { id: 'action', label: 'Action', action: 'element', value: 'action' },
-        { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
       ];
     case 'parenthetical':
       return [
@@ -142,10 +146,6 @@ function scriptRing(type) {
         { id: 'char', label: 'Char', action: 'element', value: 'character' },
         { id: 'action', label: 'Action', action: 'element', value: 'action' },
         { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
-        { id: 'trans', label: 'Trans ▸', action: 'submenu', value: 'transitions' },
-        { id: 'shot', label: 'Shot', action: 'element', value: 'shot' },
-        { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
-        { id: 'note', label: 'Note', action: 'element', value: 'note' },
       ];
     case 'dialogue':
       return [
@@ -153,57 +153,47 @@ function scriptRing(type) {
         { id: 'paren', label: '( )', action: 'element', value: 'parenthetical' },
         { id: 'action', label: 'Action', action: 'element', value: 'action' },
         { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
+        { id: 'cut', label: 'CUT TO', action: 'line', value: 'CUT TO:', type: 'transition' },
         { id: 'trans', label: 'Trans ▸', action: 'submenu', value: 'transitions' },
-        { id: 'shot', label: 'Shot', action: 'element', value: 'shot' },
-        { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
-        { id: 'note', label: 'Note', action: 'element', value: 'note' },
       ];
     case 'transition':
       return [
         { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
         { id: 'action', label: 'Action', action: 'element', value: 'action' },
-        { id: 'char', label: 'Char', action: 'element', value: 'character' },
         { id: 'cut', label: 'CUT TO', action: 'line', value: 'CUT TO:', type: 'transition' },
         { id: 'fade', label: 'FADE OUT', action: 'line', value: 'FADE OUT.', type: 'transition' },
         { id: 'more', label: 'More ▸', action: 'submenu', value: 'transitions' },
-        { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
-        { id: 'shot', label: 'Shot', action: 'element', value: 'shot' },
       ];
     case 'shot':
       return [
         { id: 'action', label: 'Action', action: 'element', value: 'action' },
         { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
         { id: 'char', label: 'Char', action: 'element', value: 'character' },
-        { id: 'trans', label: 'Trans ▸', action: 'submenu', value: 'transitions' },
         { id: 'dlg', label: 'Dial', action: 'element', value: 'dialogue' },
-        { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
-        { id: 'note', label: 'Note', action: 'element', value: 'note' },
-        { id: 'shot', label: 'Shot', action: 'element', value: 'shot' },
+        { id: 'cut', label: 'CUT TO', action: 'line', value: 'CUT TO:', type: 'transition' },
       ];
     case 'action':
     case 'general':
     case 'note':
     default:
+      // Default writing surface — highest frequency cycle
       return [
         { id: 'scene', label: 'Scene', action: 'element', value: 'scene' },
         { id: 'char', label: 'Char', action: 'element', value: 'character' },
         { id: 'dlg', label: 'Dial', action: 'element', value: 'dialogue' },
-        { id: 'trans', label: 'Trans ▸', action: 'submenu', value: 'transitions' },
-        { id: 'shot', label: 'Shot', action: 'element', value: 'shot' },
         { id: 'int', label: 'INT.', action: 'snip', value: 'INT. ', forceScene: true },
         { id: 'cut', label: 'CUT TO', action: 'line', value: 'CUT TO:', type: 'transition' },
-        { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
+        { id: 'trans', label: 'Trans ▸', action: 'submenu', value: 'transitions' },
       ];
   }
 }
 
 function boardRing() {
-  // Actions handled via PlatenUI when present; otherwise no-ops
   return [
     { id: 'note', label: 'Note', action: 'board', value: 'note' },
+    { id: 'image', label: 'Image', action: 'board', value: 'image' },
+    { id: 'table', label: 'Table', action: 'board', value: 'table' },
     { id: 'sync', label: 'Scenes', action: 'board', value: 'sync' },
-    { id: 'sub', label: 'Sub ▸', action: 'board', value: 'sub' },
-    { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
     { id: 'script', label: 'Script', action: 'view', value: 'script' },
     { id: 'tl', label: 'Time', action: 'view', value: 'timeline' },
   ];
@@ -213,9 +203,7 @@ function timelineRing() {
   return [
     { id: 'add', label: 'Event', action: 'timeline', value: 'add' },
     { id: 'sync', label: 'Scenes', action: 'timeline', value: 'sync' },
-    { id: 'demo', label: 'Demo', action: 'timeline', value: 'demo' },
     { id: 'fit', label: 'Fit', action: 'timeline', value: 'fit' },
-    { id: 'focus', label: 'View ▸', action: 'submenu', value: 'focus' },
     { id: 'script', label: 'Script', action: 'view', value: 'script' },
     { id: 'board', label: 'Board', action: 'view', value: 'board' },
   ];

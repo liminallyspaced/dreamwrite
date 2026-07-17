@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════
-   PLATEN — professional carbon desk + typewriter focus
-   Courier Prime · expandable rails · radial · focus modes
+   DreamWrite — carbon desk · IBM Plex UI · Courier only on paper
    ═══════════════════════════════════════════════════════════ */
 
+/* Script / paper only — industry screenplay mono */
 @font-face {
   font-family: "Courier Prime";
   src: url("../assets/fonts/CourierPrime-Regular.ttf") format("truetype");
@@ -25,6 +25,52 @@
   font-display: swap;
 }
 
+/* Chrome UI */
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/IBMPlexSans-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/IBMPlexSans-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/IBMPlexSans-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/IBMPlexSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Brand / headings */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4-Semibold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #070707;
   --bg-elev: #121212;
@@ -38,12 +84,14 @@
   --text-faint: #666;
   --accent: #f2f2f2;
   --ribbon: #8b1e1e;
-  --page: #f0ebe0;
-  --page-text: #141210;
+  --page: #fafafa;
+  --page-text: #1a1510;
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-  --font-ui: "Segoe UI", system-ui, sans-serif;
+  /* UI never uses Courier — paper does */
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Source Serif 4", "Georgia", "Times New Roman", serif;
+  --font-type: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-script: "Courier Prime", "Courier New", Courier, monospace;
-  --font-type: "Courier Prime", "Courier New", monospace;
   --top-slim: 44px;
   --top-panel: 118px;
   --left-w: 250px;
@@ -62,7 +110,7 @@ html.theme-light {
   --text: #141414;
   --text-dim: #4a4a4a;
   --text-faint: #6e6e6e;
-  --page: #faf6ec;
+  --page: #ffffff;
   --page-text: #111;
   --border: #b5af9f;
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
@@ -86,8 +134,9 @@ button {
   border-radius: 4px;
   padding: 6px 11px;
   cursor: pointer;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 600;
 }
@@ -134,9 +183,6 @@ textarea { resize: vertical; min-height: 80px; }
 }
 #app.focus-paper {
   background: radial-gradient(ellipse at 50% 40%, #1a1814 0%, #050504 75%);
-}
-#app.focus-typewriter {
-  background: #000;
 }
 
 /* ── Top rail ── */
@@ -189,15 +235,17 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .brand.compact { display: flex; align-items: center; gap: 8px; min-width: 110px; }
 .brand-mark {
-  width: 28px; height: 28px; border-radius: 6px; overflow: hidden;
-  border: 1px solid #444; flex-shrink: 0;
+  width: 28px; height: 28px; border-radius: 7px; overflow: hidden;
+  border: 1px solid #3a3a3a; flex-shrink: 0;
+  background: #0a0a0a;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .brand-name {
-  font-family: var(--font-type);
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  font-size: 13px;
   text-transform: uppercase;
 }
 .slim-actions { display: flex; gap: 2px; }
@@ -333,16 +381,13 @@ textarea { resize: vertical; min-height: 80px; }
 #app.left-collapsed #workspace {
   grid-template-columns: var(--left-slim) 1fr 0;
 }
-#app.focus-paper #workspace,
-#app.focus-typewriter #workspace {
+#app.focus-paper #workspace {
   grid-template-columns: var(--left-slim) 1fr 0;
 }
-#app.focus-paper.left-expanded #workspace,
-#app.focus-typewriter.left-expanded #workspace {
+#app.focus-paper.left-expanded #workspace {
   grid-template-columns: var(--left-w) 1fr 0;
 }
 #app.focus-paper #rightbar,
-#app.focus-typewriter #rightbar,
 #app.left-collapsed #rightbar {
   opacity: 0;
   pointer-events: none;
@@ -473,24 +518,6 @@ textarea { resize: vertical; min-height: 80px; }
 #app.focus-paper .editor-scroll {
   padding: 56px 24px 72px;
 }
-/* Typewriter focus: paper lives in upper band and tucks into the machine */
-#app.focus-typewriter .editor-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: none;
-  padding: 20px 16px 0;
-  /* leave room so bottom of page meets platen */
-  margin-bottom: 0;
-  z-index: 3;
-  /* fade paper under the machine */
-  mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%);
-}
-#app.focus-typewriter .stage {
-  /* split: paper zone + machine */
-  display: grid;
-  grid-template-rows: 1fr minmax(280px, 42vh);
-}
 
 .page-stack {
   width: min(816px, 100%);
@@ -504,36 +531,18 @@ textarea { resize: vertical; min-height: 80px; }
   transform: scale(1.02);
   filter: drop-shadow(0 20px 50px rgba(0,0,0,0.45));
 }
-#app.focus-typewriter .page-stack {
-  width: min(640px, 88%);
-  transform: translateY(8px);
-  filter: drop-shadow(0 12px 28px rgba(0,0,0,0.4));
-  /* page continues under typewriter visually */
-  margin-bottom: -48px;
-  position: relative;
-  z-index: 2;
-}
-#app.focus-typewriter .page {
-  min-height: 520px;
-  /* slightly shorter sheet so it reads as "in the machine" */
-  padding: 56px 48px 80px 72px;
-  box-shadow:
-    0 2px 0 rgba(0,0,0,0.08),
-    0 18px 40px rgba(0,0,0,0.35);
-}
 
-/* Page — authentic paper */
+/* Page — clean white sheet, one even texture, no dirt/foxing */
 .page {
   width: 100%;
   min-height: 1056px;
-  background-color: var(--page);
+  background-color: #ffffff;
   color: var(--page-text);
+  /* solid white + single subtle paper grain (no photo dirt, no stains) */
   background-image:
-    url("../assets/paper-texture.jpg"),
-    linear-gradient(180deg, rgba(255,255,255,0.35), transparent 40%),
-    radial-gradient(ellipse at 15% 0%, rgba(255,255,255,0.2), transparent 50%);
-  background-size: cover, auto, auto;
-  background-blend-mode: multiply, normal, soft-light;
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch' seed='2'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  background-repeat: repeat;
   box-shadow: var(--shadow);
   padding: 96px 96px 96px 144px;
   position: relative;
@@ -546,33 +555,12 @@ textarea { resize: vertical; min-height: 80px; }
   z-index: 3;
 }
 .page-edge {
-  border: 1px solid rgba(80, 70, 50, 0.16);
-  box-shadow: inset 0 0 48px rgba(60, 50, 30, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
 }
+/* Keep node for layout code; no dirt overlays */
 .page-ink {
-  background:
-    radial-gradient(ellipse 100% 24% at 6% 0%, rgba(20,16,12,0.08), transparent 55%),
-    radial-gradient(ellipse 80% 20% at 96% 2%, rgba(15,12,10,0.07), transparent 50%),
-    radial-gradient(ellipse 70% 18% at 4% 98%, rgba(10,8,6,0.09), transparent 55%),
-    radial-gradient(ellipse 90% 22% at 98% 100%, rgba(12,10,8,0.08), transparent 50%);
-  mix-blend-mode: multiply;
-  opacity: 0.9;
-}
-.page-ink::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  opacity: 0.2;
-  mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='520'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.09' numOctaves='4' seed='11'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.05  0 0 0 0 0.04  0 0 0 0 0.03  0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='400' height='520' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 100% 100%;
-  -webkit-mask-image:
-    linear-gradient(to right, #000 0%, transparent 5%, transparent 95%, #000 100%),
-    linear-gradient(to bottom, #000 0%, transparent 4%, transparent 96%, #000 100%);
-  mask-image:
-    linear-gradient(to right, #000 0%, transparent 5%, transparent 95%, #000 100%),
-    linear-gradient(to bottom, #000 0%, transparent 4%, transparent 96%, #000 100%);
-  filter: contrast(1.3) blur(0.4px);
+  display: none;
 }
 .page-number {
   position: absolute;
@@ -580,9 +568,9 @@ textarea { resize: vertical; min-height: 80px; }
   right: 52px;
   font-family: var(--font-script);
   font-size: 12px;
-  color: #3a3a3a;
+  color: #333;
   z-index: 2;
-  opacity: 0.7;
+  opacity: 0.85;
 }
 .page-number[hidden] {
   display: none !important;
@@ -608,7 +596,7 @@ textarea { resize: vertical; min-height: 80px; }
   text-transform: uppercase;
 }
 
-/* Blocks — industry columns + Courier Prime */
+/* Blocks — industry columns. Courier Prime ONLY here (and page numbers). */
 .blocks {
   font-family: var(--font-script);
   font-size: 12.5px;
@@ -624,16 +612,19 @@ textarea { resize: vertical; min-height: 80px; }
   white-space: pre-wrap;
   word-wrap: break-word;
   min-height: 1.15em;
-  caret-color: #111;
-  color: var(--page-text);
-  text-shadow: 0.15px 0 0 rgba(0,0,0,0.12);
+  caret-color: #1a1510;
+  color: #1a1510;
+  /* Very light ink weight — no blur/displacement */
+  text-shadow: 0.2px 0 0 rgba(0, 0, 0, 0.12);
+  -webkit-font-smoothing: antialiased;
   user-select: text;
   cursor: text;
   -webkit-user-modify: read-write-plaintext-only;
 }
 .block:focus {
-  background: rgba(0,0,0,0.03);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.07);
+  background: rgba(30, 22, 14, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(30, 22, 14, 0.1);
+  text-shadow: 0.2px 0 0 rgba(0, 0, 0, 0.12);
 }
 .block.scene { text-transform: uppercase; font-weight: 700; }
 .block.character {
@@ -690,65 +681,6 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .block-row:focus-within .block-gutter,
 .block-row:hover .block-gutter { opacity: 1; }
-
-/* Typewriter stage — full machine, not a cropped strip */
-.typewriter-stage {
-  position: relative;
-  flex: 0 0 0;
-  height: 0;
-  opacity: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 5;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  transition: flex-basis var(--dur) var(--ease), height var(--dur) var(--ease), opacity 0.35s ease;
-}
-#app.focus-typewriter .typewriter-stage {
-  flex: 0 0 auto;
-  height: auto;
-  min-height: 280px;
-  max-height: 46vh;
-  opacity: 1;
-  /* sit on top of paper bottom so platen covers sheet edge */
-  margin-top: -72px;
-  pointer-events: none;
-}
-.tw-vignette {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 100%, transparent 30%, rgba(0,0,0,0.55) 100%),
-    linear-gradient(to top, rgba(0,0,0,0.5) 0%, transparent 55%);
-  pointer-events: none;
-  z-index: 1;
-}
-.tw-machine {
-  position: relative;
-  z-index: 2;
-  width: min(900px, 100%);
-  height: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  /* blend machine bg into desk */
-  background: radial-gradient(ellipse at 50% 80%, #1a1a1a 0%, transparent 70%);
-}
-.tw-img {
-  width: 100%;
-  max-height: min(420px, 44vh);
-  height: auto;
-  object-fit: contain;
-  object-position: bottom center;
-  display: block;
-  user-select: none;
-  -webkit-user-drag: none;
-  /* lift slightly so keys/platen read clearly */
-  filter: drop-shadow(0 -12px 40px rgba(0,0,0,0.65));
-  /* kill harsh white studio floor if present */
-  mix-blend-mode: normal;
-}
 
 /* Status */
 #statusbar {
@@ -849,9 +781,9 @@ textarea { resize: vertical; min-height: 80px; }
 .radial-item {
   position: absolute;
   left: 0; top: 0;
-  width: 64px;
-  height: 64px;
-  margin: -32px 0 0 -32px;
+  width: 70px;
+  height: 70px;
+  margin: -35px 0 0 -35px;
   border-radius: 50%;
   border: 1px solid #444;
   background: radial-gradient(circle at 35% 30%, #2a2a2a, #0e0e0e 70%);
@@ -932,7 +864,7 @@ textarea { resize: vertical; min-height: 80px; }
 #ac div {
   padding: 8px 10px;
   cursor: pointer;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 #ac div:hover, #ac div.active { background: #f0f0f0; color: #111; }
@@ -959,15 +891,18 @@ textarea { resize: vertical; min-height: 80px; }
   text-align: center;
 }
 .welcome-logo {
-  width: 96px; height: 96px; margin: 0 auto 16px;
-  border-radius: 12px; overflow: hidden; border: 1px solid #444;
+  width: 104px; height: 104px; margin: 0 auto 18px;
+  border-radius: 16px; overflow: hidden; border: 1px solid #3a3a3a;
+  background: #0a0a0a;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
 }
 .welcome-logo img { width: 100%; height: 100%; object-fit: cover; }
 .welcome-card h1 {
   margin: 0 0 8px;
-  font-size: 28px;
-  font-family: var(--font-type);
-  letter-spacing: 0.28em;
+  font-size: 30px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.3em;
   text-transform: uppercase;
 }
 .welcome-card p { color: var(--text-dim); line-height: 1.55; max-width: 52ch; margin: 0 auto; }
@@ -1081,7 +1016,6 @@ textarea { resize: vertical; min-height: 80px; }
 .lint-ln { color: var(--text-faint); font-family: var(--font-type); }
 .lint-msg { color: var(--text-dim); }
 
-#btnSound.active { background: #f0f0f0; color: #111; }
 
 /* Scrollbars */
 .panel-body::-webkit-scrollbar,
@@ -1167,7 +1101,7 @@ textarea { resize: vertical; min-height: 80px; }
   color: #1a1510;
   border-radius: 999px;
   padding: 4px 10px;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
   font-size: 11px;
   white-space: nowrap;
   max-width: 220px;
@@ -1183,7 +1117,7 @@ textarea { resize: vertical; min-height: 80px; }
   height: 22px;
   border-radius: 3px;
   color: #f5f0e6;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
   font-size: 10px;
   line-height: 22px;
   padding: 0 8px;
@@ -1213,10 +1147,10 @@ textarea { resize: vertical; min-height: 80px; }
   border: 1px solid #2a2a2a;
   color: inherit;
   padding: 6px 8px;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
 }
 .tl-detail-date {
-  font-family: var(--font-type);
+  font-family: var(--font-ui);
   font-size: 12px;
   color: var(--text-faint);
 }
@@ -1225,7 +1159,7 @@ textarea { resize: vertical; min-height: 80px; }
   background: #0c0c0c;
   border: 1px solid #2a2a2a;
   color: inherit;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
   font-size: 12px;
   padding: 8px;
 }
@@ -1261,7 +1195,7 @@ textarea { resize: vertical; min-height: 80px; }
   padding: 10px;
   box-shadow: 0 2px 0 rgba(0,0,0,0.08), 0 8px 20px rgba(0,0,0,0.18);
   color: #1a1510;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
   font-size: 12px;
   display: flex;
   flex-direction: column;
@@ -1272,10 +1206,11 @@ textarea { resize: vertical; min-height: 80px; }
 .bd-card.type-sub-board { border-style: dashed; }
 .bd-card.bd-column { background: rgba(245,240,230,0.55) !important; }
 .bd-card-kicker {
-  font-family: var(--font-type);
+  font-family: var(--font-ui);
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  font-weight: 600;
   opacity: 0.55;
 }
 .bd-card-title, .bd-card-body {
@@ -1283,7 +1218,7 @@ textarea { resize: vertical; min-height: 80px; }
   border: 1px solid rgba(0,0,0,0.12);
   background: rgba(255,255,255,0.35);
   color: #1a1510;
-  font-family: var(--font-script);
+  font-family: var(--font-ui);
   font-size: 12px;
   padding: 4px 6px;
 }
@@ -1291,6 +1226,64 @@ textarea { resize: vertical; min-height: 80px; }
 .bd-card-title-static { font-weight: 600; line-height: 1.3; }
 .bd-connectors { pointer-events: none; z-index: 0; }
 .bd-todo { display: flex; gap: 6px; align-items: center; font-size: 11px; }
+.bd-card.type-image { padding-bottom: 8px; }
+.bd-image {
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  background: rgba(0,0,0,0.06);
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 2px;
+  pointer-events: none;
+  user-select: none;
+}
+.bd-image-missing {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(0,0,0,0.2);
+  font-size: 11px;
+}
+.bd-card-caption {
+  width: 100%;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: rgba(255,255,255,0.35);
+  color: #1a1510;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 3px 6px;
+}
+.bd-card.type-table { min-width: 220px; }
+.bd-table-wrap {
+  overflow: auto;
+  max-height: 220px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: rgba(255,255,255,0.4);
+}
+.bd-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.bd-table td {
+  border: 1px solid rgba(0,0,0,0.12);
+  padding: 0;
+  min-width: 56px;
+}
+.bd-cell, .bd-cell-check {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #1a1510;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 3px 4px;
+  box-sizing: border-box;
+}
+.bd-cell-check { width: auto; margin: 4px auto; display: block; }
+.bd-table-tools { display: flex; gap: 4px; }
+.bd-table-tools .ghost { font-size: 10px; padding: 2px 6px; }
 
 .search-results { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .search-hit {

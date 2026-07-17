@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="12" fill="#0a0a0a"/>
+  <!-- platen roller -->
+  <rect x="10" y="28" width="44" height="10" rx="5" fill="#e8e2d6"/>
+  <rect x="12" y="30" width="40" height="6" rx="3" fill="#1a1814"/>
+  <circle cx="16" cy="33" r="2.2" fill="#cfc6b4"/>
+  <circle cx="48" cy="33" r="2.2" fill="#cfc6b4"/>
+  <!-- paper edge rising -->
+  <path d="M22 28 V16 c0-1.5 1.2-2.5 2.6-2.2 L40 16.5 c1.2.2 2 .9 2 2.1V28" stroke="#f0ebe0" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <!-- ink ribbon slash -->
+  <path d="M38 12 L26 52" stroke="#8b1e1e" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M40 12 L28 52" stroke="#3a0c0c" stroke-width="1.2" stroke-linecap="round" opacity="0.7"/>
+</svg>

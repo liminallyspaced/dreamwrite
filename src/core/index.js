@@ -13,6 +13,8 @@ export * as timelineModel from './timeline/model.js';
 export * as timelineCal from './timeline/calendar.js';
 export * as boardModel from './board/model.js';
 export * as boardTemplates from './board/templates.js';
+export * as boardTable from './board/table.js';
 export * as projectDoc from './project/document.js';
 export * as projectSearch from './project/search.js';
+export * as formatV2 from './project/format-v2.js';
 export * as autosave from './persist/autosave.js';
