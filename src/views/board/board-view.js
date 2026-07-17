@@ -30,6 +30,14 @@ import {
   segmentMid,
   makeConnectorFields,
 } from '../../core/board/connectors.js';
+import {
+  layoutColumnChildren,
+  findColumnAtPoint,
+  snapCardIntoColumn,
+  detachCardFromColumn,
+  indexFromY,
+  SEMANTIC_COLORS,
+} from '../../core/board/columns.js';
 import { listTemplates } from '../../core/board/templates.js';
 import {
   normalizeTable,
@@ -63,11 +71,19 @@ export function mountBoardView(root, api) {
       <nav class="bd-crumbs" aria-label="Board path"></nav>
       <div class="bd-spacer"></div>
       <button type="button" class="primary-soft" data-bd="note">+ Note</button>
+      <button type="button" class="ghost" data-bd="todo" title="To-do list">+ To-do</button>
+      <button type="button" class="ghost" data-bd="column" title="Column container">+ Column</button>
       <button type="button" class="ghost" data-bd="image" title="Import image asset">+ Image</button>
       <button type="button" class="ghost" data-bd="table" title="Add table card">+ Table</button>
       <button type="button" class="ghost" data-bd="arrow" title="Connect cards (or drag edge ports)">+ Arrow</button>
       <button type="button" class="ghost" data-bd="sync" title="Place a card per scene">Sync scenes</button>
       <button type="button" class="ghost" data-bd="sub">+ Sub-board</button>
+      <div class="bd-color-strip" title="Semantic card color" aria-label="Card color">
+        ${SEMANTIC_COLORS.map(
+          (c) =>
+            `<button type="button" class="bd-color-swatch" data-color="${c.value}" data-color-id="${c.id}" title="${c.label}" style="background:${c.value}"></button>`
+        ).join('')}
+      </div>
       <select class="bd-templates" title="Writing templates" aria-label="Templates">
         <option value="">Template…</option>
         ${templates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}
@@ -166,12 +182,22 @@ export function mountBoardView(root, api) {
     layer.style.transform = `translate(${cam.panX}px, ${cam.panY}px) scale(${cam.scale})`;
     layer.style.transformOrigin = '0 0';
 
+    // Hide children of collapsed columns
+    const collapsedParents = new Set();
+    for (const id of board.items || []) {
+      const col = g.items[id];
+      if (col?.type === 'column' && col.collapsed) collapsedParents.add(col.id);
+    }
+
     for (const id of board.items || []) {
       const it = g.items[id];
       if (!it || it.type === 'connector') continue;
+      if (it.parentId && collapsedParents.has(it.parentId)) continue;
+
       const el = document.createElement('div');
       el.className = `bd-card type-${it.type}`;
       if (selection.has(it.id)) el.classList.add('selected');
+      if (it.parentId) el.classList.add('bd-in-column');
       el.dataset.id = it.id;
       el.style.left = `${it.x}px`;
       el.style.top = `${it.y}px`;
@@ -192,8 +218,17 @@ export function mountBoardView(root, api) {
           <button type="button" class="ghost bd-open-scene">Open in script</button>
         `;
       } else if (it.type === 'column') {
-        el.innerHTML = `<input class="bd-card-title" value="${escapeAttr(it.title || 'Column')}" />`;
+        const count = (it.childIds || []).length;
+        el.innerHTML = `
+          <div class="bd-col-head">
+            <button type="button" class="ghost bd-col-toggle" title="Collapse / expand">${it.collapsed ? '▸' : '▾'}</button>
+            <input class="bd-card-title" value="${escapeAttr(it.title || 'Column')}" />
+            <span class="bd-col-count" title="Cards in column">${count}</span>
+          </div>
+          ${it.collapsed ? '<div class="bd-col-collapsed-hint muted">Collapsed</div>' : '<div class="bd-col-dropzone" aria-hidden="true"></div>'}
+        `;
         el.classList.add('bd-column');
+        if (it.collapsed) el.classList.add('bd-column-collapsed');
       } else if (it.type === 'sub-board') {
         el.innerHTML = `
           <div class="bd-card-kicker">Board</div>
@@ -204,10 +239,14 @@ export function mountBoardView(root, api) {
         const tasks = (it.tasks || [])
           .map(
             (t) =>
-              `<label class="bd-todo"><input type="checkbox" data-tid="${t.id}" ${t.done ? 'checked' : ''}/> <span>${escapeHtml(t.text || '')}</span></label>`
+              `<label class="bd-todo"><input type="checkbox" data-tid="${t.id}" ${t.done ? 'checked' : ''}/> <input class="bd-todo-text" data-tid="${t.id}" value="${escapeAttr(t.text || '')}" placeholder="Task…" /></label>`
           )
           .join('');
-        el.innerHTML = `<input class="bd-card-title" value="${escapeAttr(it.title || 'To-do')}" />${tasks}`;
+        el.innerHTML = `
+          <input class="bd-card-title" value="${escapeAttr(it.title || 'To-do')}" />
+          ${tasks}
+          <button type="button" class="ghost bd-todo-add">+ Task</button>
+        `;
       } else if (it.type === 'image') {
         const url =
           it.assetId &&
@@ -274,8 +313,16 @@ export function mountBoardView(root, api) {
         } else if (!selection.has(it.id)) {
           selection = selectOnly(selection, it.id);
         }
-        // Group move: all selected (or just this card)
-        const ids = selection.has(it.id) ? [...selection] : [it.id];
+        // Group move: all selected (or just this card) + column children
+        let ids = selection.has(it.id) ? [...selection] : [it.id];
+        const idSet = new Set(ids);
+        for (const sid of [...idSet]) {
+          const item = g.items[sid];
+          if (item?.type === 'column') {
+            for (const cid of item.childIds || []) idSet.add(cid);
+          }
+        }
+        ids = [...idSet];
         const origins = new Map();
         for (const id of ids) {
           const item = g.items[id];
@@ -284,6 +331,7 @@ export function mountBoardView(root, api) {
         drag = {
           mode: 'move',
           ids,
+          primaryId: it.id,
           ox: e.clientX,
           oy: e.clientY,
           origins,
@@ -409,6 +457,66 @@ export function mountBoardView(root, api) {
       });
       el.querySelector('.bd-replace-image')?.addEventListener('click', async () => {
         await replaceImageAsset(it.id);
+      });
+      el.querySelector('.bd-col-toggle')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        apiRef.exec(
+          'board.updateItem',
+          { id: it.id, patch: { collapsed: !it.collapsed } },
+          { label: it.collapsed ? 'Expand column' : 'Collapse column' }
+        );
+        // Reflow after collapse
+        const g2 = graph();
+        const col = g2.items[it.id];
+        if (col) {
+          const laid = layoutColumnChildren(col, g2.items);
+          const updates = [
+            { id: col.id, patch: laid.columnPatch },
+            ...laid.updates,
+          ];
+          apiRef.exec(
+            'board.updateItems',
+            { updates, label: 'Reflow column' },
+            { label: 'Reflow column' }
+          );
+        }
+        render();
+      });
+      el.querySelector('.bd-todo-add')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tasks = [...(it.tasks || []), { id: boardUid('td'), text: '', done: false }];
+        apiRef.exec(
+          'board.updateItem',
+          { id: it.id, patch: { tasks, h: Math.max(it.h || 120, 48 + tasks.length * 28) } },
+          { label: 'Add task' }
+        );
+        render();
+      });
+      el.querySelectorAll('.bd-todo input[type="checkbox"]').forEach((input) => {
+        input.addEventListener('change', () => {
+          const tid = input.dataset.tid;
+          const tasks = (it.tasks || []).map((t) =>
+            t.id === tid ? { ...t, done: !!input.checked } : t
+          );
+          apiRef.exec(
+            'board.updateItem',
+            { id: it.id, patch: { tasks } },
+            { mergeKey: `bd:${it.id}:todo:${tid}` }
+          );
+        });
+      });
+      el.querySelectorAll('.bd-todo-text').forEach((input) => {
+        input.addEventListener('change', () => {
+          const tid = input.dataset.tid;
+          const tasks = (it.tasks || []).map((t) =>
+            t.id === tid ? { ...t, text: input.value } : t
+          );
+          apiRef.exec(
+            'board.updateItem',
+            { id: it.id, patch: { tasks } },
+            { mergeKey: `bd:${it.id}:todotext:${tid}` }
+          );
+        });
       });
 
       if (it.type === 'table') {
@@ -707,6 +815,84 @@ export function mountBoardView(root, api) {
     };
   }
 
+  /**
+   * Commit a group move, then snap free cards into / out of columns (Phase 8c).
+   */
+  function commitMoveWithColumns(dragState, dx, dy) {
+    const g = graph();
+    /** @type {Array<{id:string, patch:object}>} */
+    let updates = [];
+    for (const id of dragState.ids) {
+      const o = dragState.origins.get(id);
+      if (!o) continue;
+      updates.push({
+        id,
+        patch: { x: Math.round(o.x + dx), y: Math.round(o.y + dy) },
+      });
+    }
+    if (updates.length) {
+      apiRef.exec(
+        'board.updateItems',
+        { updates, label: updates.length > 1 ? 'Move cards' : 'Move card' },
+        { label: updates.length > 1 ? 'Move cards' : 'Move card' }
+      );
+    }
+
+    // Snap primary (and any other free selected non-column cards) into columns
+    const g2 = graph();
+    const primary = g2.items[dragState.primaryId];
+    if (!primary || primary.type === 'column' || primary.type === 'connector') return;
+
+    const cx = (primary.x || 0) + (primary.w || 100) / 2;
+    const cy = (primary.y || 0) + (primary.h || 50) / 2;
+    const cols = Object.values(g2.items).filter((it) => it?.type === 'column');
+    const hit = findColumnAtPoint(cols, { x: cx, y: cy });
+
+    if (hit && hit.id !== primary.parentId) {
+      // Don't nest columns
+      if (primary.type === 'column') return;
+      const idx = indexFromY(hit, g2.items, cy);
+      const snapUpdates = snapCardIntoColumn(hit, primary, g2.items, idx);
+      if (snapUpdates.length) {
+        apiRef.exec(
+          'board.updateItems',
+          { updates: snapUpdates, label: 'Snap into column' },
+          { label: 'Snap into column' }
+        );
+      }
+    } else if (!hit && primary.parentId) {
+      const freeUpdates = detachCardFromColumn(primary, g2.items, {
+        x: primary.x,
+        y: primary.y,
+      });
+      if (freeUpdates.length) {
+        apiRef.exec(
+          'board.updateItems',
+          { updates: freeUpdates, label: 'Remove from column' },
+          { label: 'Remove from column' }
+        );
+      }
+    } else if (hit && hit.id === primary.parentId) {
+      // Reorder within same column
+      const idx = indexFromY(hit, g2.items, cy);
+      const without = (hit.childIds || []).filter((id) => id !== primary.id);
+      without.splice(Math.min(idx, without.length), 0, primary.id);
+      const nextCol = { ...hit, childIds: without };
+      const laid = layoutColumnChildren(nextCol, { ...g2.items, [hit.id]: nextCol });
+      apiRef.exec(
+        'board.updateItems',
+        {
+          updates: [
+            { id: hit.id, patch: { childIds: without, ...laid.columnPatch } },
+            ...laid.updates,
+          ],
+          label: 'Reorder in column',
+        },
+        { label: 'Reorder in column' }
+      );
+    }
+  }
+
   async function replaceImageAsset(itemId) {
     if (!apiRef.importImage) {
       alert('Image import requires the DreamWrite desktop app.');
@@ -741,8 +927,65 @@ export function mountBoardView(root, api) {
       body: '',
     });
     apiRef.exec('board.addItem', { boardId, item }, { label: 'Add note' });
+    selection = selectOnly(selection, item.id);
     render();
   };
+  root.querySelector('[data-bd="todo"]').onclick = () => {
+    const boardId = ensureBoardId();
+    const pt = worldDropPoint();
+    const item = createBoardItem('todo', {
+      id: boardUid('bit'),
+      boardId,
+      x: pt.x,
+      y: pt.y,
+      title: 'To-do',
+      tasks: [
+        { id: boardUid('td'), text: '', done: false },
+        { id: boardUid('td'), text: '', done: false },
+      ],
+      h: 140,
+    });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add to-do' });
+    selection = selectOnly(selection, item.id);
+    render();
+  };
+  root.querySelector('[data-bd="column"]').onclick = () => {
+    const boardId = ensureBoardId();
+    const pt = worldDropPoint();
+    const item = createBoardItem('column', {
+      id: boardUid('bit'),
+      boardId,
+      x: pt.x,
+      y: pt.y,
+      title: 'Column',
+      childIds: [],
+      w: 240,
+      h: 280,
+    });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add column' });
+    selection = selectOnly(selection, item.id);
+    render();
+  };
+  root.querySelectorAll('.bd-color-swatch').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!selection.size) return;
+      const color = btn.dataset.color;
+      const updates = [...selection]
+        .map((id) => {
+          const it = graph().items[id];
+          if (!it || it.type === 'connector' || it.type === 'column') return null;
+          return { id, patch: { color } };
+        })
+        .filter(Boolean);
+      if (!updates.length) return;
+      apiRef.exec(
+        'board.updateItems',
+        { updates, label: 'Set card color' },
+        { label: 'Set card color' }
+      );
+      render();
+    });
+  });
   root.querySelector('[data-bd="image"]').onclick = async () => {
     if (!apiRef.importImage) {
       alert('Image import requires the DreamWrite desktop app.');
@@ -990,22 +1233,7 @@ export function mountBoardView(root, api) {
       const dx = drag._dx || 0;
       const dy = drag._dy || 0;
       if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-        const updates = [];
-        for (const id of drag.ids) {
-          const o = drag.origins.get(id);
-          if (!o) continue;
-          updates.push({
-            id,
-            patch: { x: Math.round(o.x + dx), y: Math.round(o.y + dy) },
-          });
-        }
-        if (updates.length) {
-          apiRef.exec(
-            'board.updateItems',
-            { updates, label: updates.length > 1 ? 'Move cards' : 'Move card' },
-            { label: updates.length > 1 ? 'Move cards' : 'Move card' }
-          );
-        }
+        commitMoveWithColumns(drag, dx, dy);
       }
       drag = null;
       render();

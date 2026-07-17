@@ -229,6 +229,25 @@ async function main() {
       JSON.stringify(board8b)
     );
 
+    // Phase 8c: column / todo / color controls present
+    const board8c = await cdp.evaluate(`(() => {
+      try {
+        if (window.PlatenUI?.setView) window.PlatenUI.setView('board');
+        return {
+          hasColumnBtn: !!document.querySelector('#boardRoot [data-bd="column"]'),
+          hasTodoBtn: !!document.querySelector('#boardRoot [data-bd="todo"]'),
+          colorSwatches: document.querySelectorAll('#boardRoot .bd-color-swatch').length,
+        };
+      } catch (e) {
+        return { error: String(e && e.message || e) };
+      }
+    })()`);
+    check(
+      'board 8c column/todo/color surface',
+      !board8c.error && board8c.hasColumnBtn && board8c.hasTodoBtn && board8c.colorSwatches >= 4,
+      JSON.stringify(board8c)
+    );
+
     // back to script for block typing checks
     await cdp.evaluate(`(() => { if (window.PlatenUI?.setView) window.PlatenUI.setView('script'); })()`);
     await new Promise((r) => setTimeout(r, 200));

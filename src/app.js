@@ -225,6 +225,8 @@ import {
           sync: 'sync',
           sub: 'sub',
           arrow: 'arrow',
+          todo: 'todo',
+          column: 'column',
         };
         const key = map[cmd];
         if (key) $('#boardRoot')?.querySelector(`[data-bd="${key}"]`)?.click();

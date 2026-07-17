@@ -49,6 +49,8 @@ export function createBoardItem(type, fields = {}) {
     locked: !!fields.locked,
     tags: fields.tags || [],
     z: fields.z ?? 0,
+    /** Set when snapped into a column container (Phase 8c) */
+    parentId: fields.parentId ?? null,
   };
   switch (type) {
     case 'note':
@@ -75,6 +77,7 @@ export function createBoardItem(type, fields = {}) {
         h: fields.h ?? 400,
         title: fields.title || 'Column',
         childIds: fields.childIds || [],
+        collapsed: !!fields.collapsed,
       };
     case 'sub-board':
       return {

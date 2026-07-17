@@ -52,15 +52,8 @@ function applyThreeAct(graph) {
     { title: 'Act III — Resolution', x: 560, beats: ['Break into Three', 'Finale', 'Final image'] },
   ];
   for (const col of cols) {
-    const column = createBoardItem('column', {
-      boardId: root,
-      title: col.title,
-      x: col.x,
-      y: 40,
-      w: 240,
-      h: 480,
-    });
-    g = addItemToBoard(g, root, column);
+    const childIds = [];
+    const notes = [];
     let y = 100;
     for (const beat of col.beats) {
       const note = createBoardItem('note', {
@@ -72,8 +65,23 @@ function applyThreeAct(graph) {
         w: 216,
         h: 72,
       });
-      g = addItemToBoard(g, root, note);
+      notes.push(note);
+      childIds.push(note.id);
       y += 84;
+    }
+    const column = createBoardItem('column', {
+      boardId: root,
+      title: col.title,
+      x: col.x,
+      y: 40,
+      w: 240,
+      h: 480,
+      childIds,
+    });
+    g = addItemToBoard(g, root, column);
+    for (const note of notes) {
+      note.parentId = column.id;
+      g = addItemToBoard(g, root, note);
     }
   }
   return g;
