@@ -29,10 +29,16 @@
 ---
 
 <p align="center">
-  <img src="website/images/hero.jpg" alt="DreamWrite — paper on a carbon desk" width="100%" />
+  <img src="website/images/screenshot-script.png" alt="DreamWrite script view — sample screenplay on paper" width="100%" />
 </p>
 
 > **One entity, three views.** A scene *is* a script block *and* a board card *and* a timeline event.
+
+<p align="center">
+  <img src="website/images/screenshot-board.png" alt="DreamWrite board view" width="48%" />
+  &nbsp;
+  <img src="website/images/screenshot-timeline.png" alt="DreamWrite timeline view" width="48%" />
+</p>
 
 | | |
 |:--|:--|
@@ -82,10 +88,12 @@ DreamWrite is a single **offline** desktop workspace:
 ## Product direction
 
 <p align="center">
-  <img src="website/images/app-shot.jpg" alt="DreamWrite product visual" width="720" />
+  <img src="website/images/screenshot-hero.png" alt="DreamWrite full desk UI" width="100%" />
 </p>
 
 Monochrome carbon desk · clean white paper · **Courier only on the page** · IBM Plex / Source Serif for chrome.
+
+> Screenshots are **live captures** of the app (sample project *The Last Signal*), not concept art.
 
 ---
 
