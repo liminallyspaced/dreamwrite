@@ -14,3 +14,5 @@ PHASE 8c complete on 2026-07-17. Columns+todo+color verified. Report: docs/repor
 
 PHASE 8d complete on 2026-07-17. Canvas polish + relationship map verified. Report: docs/reports/P8d-canvas-polish-report.md
 PHASE 8 complete on 2026-07-17. Board story-core gates 8a–8d shipped.
+
+PHASE 9 complete on 2026-07-17. Timeline span authoring verified. Report: docs/reports/P9-timeline-spans-report.md

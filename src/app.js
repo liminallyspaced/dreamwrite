@@ -234,7 +234,7 @@ import {
       timelineAction: (cmd) => {
         setView('timeline');
         ensureTimelineMounted();
-        const map = { add: 'add', sync: 'sync', fit: 'fit' };
+        const map = { add: 'add', sync: 'sync', fit: 'fit', period: 'period', demo: 'demo' };
         const key = map[cmd];
         if (key) $('#timelineRoot')?.querySelector(`[data-tl="${key}"]`)?.click();
       },

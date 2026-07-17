@@ -1,11 +1,17 @@
 /**
  * Timeline surface — ink axis, instant pills (up), span bars (down).
- * DOM + CSS; axis ticks; lane pack on zoom.
+ * Phase 9: span authoring (+Period, drag-create, end handles, colors).
  */
 import { createCamera, worldToScreenX, screenToWorldX, zoomAt, panBy, fitX } from '../../core/geom/camera.js';
 import { packLanes, estimateLabelWidth } from '../../core/geom/pack.js';
 import { formatTick, axisTicks } from '../../core/timeline/calendar.js';
-import { ensureProjectTimeline } from '../../core/timeline/model.js';
+import { ensureProjectTimeline, createItem } from '../../core/timeline/model.js';
+import {
+  moveSpan,
+  resizeSpanEnd,
+  spanFromDrag,
+  TIMELINE_COLORS,
+} from '../../core/timeline/spans.js';
 
 /**
  * @param {HTMLElement} root
@@ -31,15 +37,17 @@ export function mountTimelineView(root, api) {
       <button type="button" class="ghost" data-tl="sync" title="Create events from scene headings">Sync scenes</button>
       <button type="button" class="ghost" data-tl="demo" title="Seed BBY/ABY demo eras">Demo eras</button>
       <button type="button" class="primary-soft" data-tl="add">+ Event</button>
+      <button type="button" class="ghost" data-tl="period" title="Add a span / era (or drag on the axis)">+ Period</button>
       <button type="button" class="ghost" data-tl="fit">Fit</button>
     </div>
     <div class="tl-stage" tabindex="0" role="application" aria-label="Story timeline">
       <canvas class="tl-axis" aria-hidden="true"></canvas>
       <div class="tl-layer tl-spans"></div>
       <div class="tl-layer tl-instants"></div>
+      <div class="tl-rubber" hidden aria-hidden="true"></div>
       <div class="tl-empty" hidden>
         <p><strong>No events yet</strong></p>
-        <p class="muted">Sync scenes from your script, add an event, or load demo eras (BBY/ABY).</p>
+        <p class="muted">Sync scenes · + Event · + Period · drag on axis for a span · Demo eras (BBY/ABY).</p>
       </div>
     </div>
     <div class="tl-detail" hidden>
@@ -51,6 +59,25 @@ export function mountTimelineView(root, api) {
           <button type="button" class="ghost danger-del" data-tl="del">Delete</button>
           <button type="button" class="ghost" data-tl="close" aria-label="Close">✕</button>
         </header>
+        <div class="tl-detail-meta">
+          <label class="tl-meta-field">
+            <span>Kind</span>
+            <select class="tl-detail-kind" aria-label="Event kind">
+              <option value="instant">Event (instant)</option>
+              <option value="span">Period (span)</option>
+            </select>
+          </label>
+          <label class="tl-meta-field">
+            <span>Lane</span>
+            <input type="number" class="tl-detail-lane" min="0" max="24" step="1" placeholder="auto" aria-label="Lane" />
+          </label>
+          <div class="tl-color-strip" aria-label="Color">
+            ${TIMELINE_COLORS.map(
+              (c) =>
+                `<button type="button" class="tl-color-swatch" data-color="${c.value}" title="${c.label}" style="background:${c.value}"></button>`
+            ).join('')}
+          </div>
+        </div>
         <textarea class="tl-detail-body" rows="3" placeholder="Description"></textarea>
       </div>
     </div>
@@ -60,11 +87,23 @@ export function mountTimelineView(root, api) {
   const canvas = root.querySelector('.tl-axis');
   const spanLayer = root.querySelector('.tl-spans');
   const instantLayer = root.querySelector('.tl-instants');
+  const rubber = root.querySelector('.tl-rubber');
   const detail = root.querySelector('.tl-detail');
   const emptyEl = root.querySelector('.tl-empty');
   let cam = createCamera({ scale: 0.15, lockY: true, minScale: 0.02, maxScale: 8, panX: 80 });
   let selectedId = null;
+  /**
+   * @type {null | {
+   *   id: string,
+   *   mode: 'instant'|'span-move'|'span-start'|'span-end',
+   *   startX: number,
+   *   t0: number,
+   *   t1?: number,
+   * }}
+   */
   let dragging = null;
+  /** @type {null | { startX: number, t0: number }} */
+  let spanDraw = null;
   let apiRef = api;
 
   function setApi(next) {
@@ -192,7 +231,7 @@ export function mountTimelineView(root, api) {
       el.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
         e.stopPropagation();
-        dragging = { id: it.id, kind: 'instant', startX: e.clientX, t0: it.t0 };
+        dragging = { id: it.id, mode: 'instant', startX: e.clientX, t0: it.t0 };
         el.setPointerCapture(e.pointerId);
       });
       instantLayer.appendChild(el);
@@ -210,14 +249,53 @@ export function mountTimelineView(root, api) {
       el.style.width = `${Math.max(12, p.right - p.left)}px`;
       el.style.top = `${y}px`;
       el.style.background = it.color || '#444';
-      el.textContent = it.title;
+      el.innerHTML = `<span class="tl-span-label">${escapeHtml(it.title || '')}</span>
+        <div class="tl-span-handle tl-span-handle-start" data-end="start" title="Drag start"></div>
+        <div class="tl-span-handle tl-span-handle-end" data-end="end" title="Drag end"></div>`;
       el.title = `${it.title} · ${formatTick(it.t0, cal)} – ${formatTick(it.t1, cal)}`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         select(it.id);
       });
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('.tl-span-handle')) return;
+        e.stopPropagation();
+        dragging = {
+          id: it.id,
+          mode: 'span-move',
+          startX: e.clientX,
+          t0: it.t0,
+          t1: it.t1,
+        };
+        el.setPointerCapture(e.pointerId);
+      });
+      el.querySelectorAll('.tl-span-handle').forEach((h) => {
+        h.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          e.preventDefault();
+          const end = h.dataset.end === 'start' ? 'start' : 'end';
+          dragging = {
+            id: it.id,
+            mode: end === 'start' ? 'span-start' : 'span-end',
+            startX: e.clientX,
+            t0: it.t0,
+            t1: it.t1,
+          };
+          h.setPointerCapture(e.pointerId);
+        });
+      });
       spanLayer.appendChild(el);
     }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function select(id) {
@@ -230,11 +308,24 @@ export function mountTimelineView(root, api) {
     }
     detail.hidden = false;
     detail.querySelector('.tl-detail-title').value = it.title || '';
-    detail.querySelector('.tl-detail-date').textContent = formatTick(it.t0, timeline().calendar);
+    const cal = timeline().calendar;
+    detail.querySelector('.tl-detail-date').textContent =
+      it.kind === 'span'
+        ? `${formatTick(it.t0, cal)} – ${formatTick(it.t1, cal)}`
+        : formatTick(it.t0, cal);
     detail.querySelector('.tl-detail-body').value = it.description || '';
+    const kindSel = detail.querySelector('.tl-detail-kind');
+    if (kindSel) kindSel.value = it.kind === 'span' ? 'span' : 'instant';
+    const laneIn = detail.querySelector('.tl-detail-lane');
+    if (laneIn) laneIn.value = it.lane != null ? String(it.lane) : '';
     const goto = detail.querySelector('[data-tl="goto"]');
     goto.hidden = !it.entityId;
     render();
+  }
+
+  function clientToTick(clientX) {
+    const rect = stage.getBoundingClientRect();
+    return Math.round(screenToWorldX(cam, clientX - rect.left));
   }
 
   root.querySelector('[data-tl="sync"]').onclick = () => {
@@ -247,14 +338,25 @@ export function mountTimelineView(root, api) {
   };
   root.querySelector('[data-tl="add"]').onclick = () => {
     const t0 = Math.round(screenToWorldX(cam, stage.clientWidth / 2));
-    const item = {
-      id: `item_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    const item = createItem({
       kind: 'instant',
       t0,
       title: 'New event',
       color: '#333',
-    };
+    });
     apiRef.exec('timeline.addItem', { item }, { label: 'Add event' });
+    select(item.id);
+    render();
+  };
+  root.querySelector('[data-tl="period"]').onclick = () => {
+    const mid = Math.round(screenToWorldX(cam, stage.clientWidth / 2));
+    const half = Math.round(Math.max(30, (stage.clientWidth * 0.15) / cam.scale));
+    const fields = spanFromDrag(mid - half, mid + half, {
+      title: 'Period',
+      color: '#3d3830',
+    });
+    const item = createItem(fields);
+    apiRef.exec('timeline.addItem', { item }, { label: 'Add period' });
     select(item.id);
     render();
   };
@@ -303,6 +405,51 @@ export function mountTimelineView(root, api) {
       { mergeKey: `tl:${selectedId}:desc` }
     );
   });
+  detail.querySelector('.tl-detail-kind')?.addEventListener('change', (e) => {
+    if (!selectedId) return;
+    const kind = e.target.value === 'span' ? 'span' : 'instant';
+    const it = (timeline().items || []).find((x) => x.id === selectedId);
+    if (!it) return;
+    const patch = { kind };
+    if (kind === 'span' && it.t1 == null) {
+      patch.t1 = it.t0 + 365;
+    }
+    if (kind === 'instant') {
+      patch.t1 = undefined;
+    }
+    // For instant, strip t1 via replace-style: store as null and UI treats as instant
+    apiRef.exec(
+      'timeline.updateItem',
+      {
+        id: selectedId,
+        patch: kind === 'span' ? { kind: 'span', t1: patch.t1 ?? it.t0 + 365 } : { kind: 'instant', t1: null },
+      },
+      { label: 'Change event kind' }
+    );
+    select(selectedId);
+  });
+  detail.querySelector('.tl-detail-lane')?.addEventListener('change', (e) => {
+    if (!selectedId) return;
+    const raw = e.target.value;
+    const lane = raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0);
+    apiRef.exec(
+      'timeline.updateItem',
+      { id: selectedId, patch: { lane } },
+      { mergeKey: `tl:${selectedId}:lane` }
+    );
+    render();
+  });
+  detail.querySelectorAll('.tl-color-swatch').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!selectedId) return;
+      apiRef.exec(
+        'timeline.updateItem',
+        { id: selectedId, patch: { color: btn.dataset.color } },
+        { label: 'Set event color' }
+      );
+      render();
+    });
+  });
 
   // Pan / zoom
   stage.addEventListener(
@@ -321,22 +468,86 @@ export function mountTimelineView(root, api) {
 
   let panning = null;
   stage.addEventListener('pointerdown', (e) => {
-    if (e.button === 1 || (e.button === 0 && e.target === stage) || e.target === canvas) {
+    const onAxis =
+      e.target === stage || e.target === canvas || e.target === rubber;
+    if (e.button === 1) {
+      panning = { x: e.clientX, y: e.clientY };
+      stage.setPointerCapture(e.pointerId);
+      return;
+    }
+    // Shift+drag on empty/axis → draw a new span
+    if (e.button === 0 && onAxis && e.shiftKey) {
+      const t0 = clientToTick(e.clientX);
+      spanDraw = { startX: e.clientX, t0 };
+      if (rubber) {
+        rubber.hidden = false;
+        const rect = stage.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        rubber.style.left = `${x}px`;
+        rubber.style.width = '2px';
+      }
+      stage.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button === 0 && onAxis) {
       panning = { x: e.clientX, y: e.clientY };
       stage.setPointerCapture(e.pointerId);
     }
   });
   stage.addEventListener('pointermove', (e) => {
+    if (spanDraw) {
+      const rect = stage.getBoundingClientRect();
+      const x0 = spanDraw.startX - rect.left;
+      const x1 = e.clientX - rect.left;
+      const left = Math.min(x0, x1);
+      const width = Math.max(2, Math.abs(x1 - x0));
+      if (rubber) {
+        rubber.hidden = false;
+        rubber.style.left = `${left}px`;
+        rubber.style.width = `${width}px`;
+      }
+      return;
+    }
     if (dragging) {
       const dx = e.clientX - dragging.startX;
       const dt = dx / cam.scale;
-      const t0 = Math.round(dragging.t0 + dt);
-      apiRef.exec(
-        'timeline.updateItem',
-        { id: dragging.id, patch: { t0 } },
-        { mergeKey: `tl:${dragging.id}:drag` }
-      );
-      dragging = { ...dragging, startX: e.clientX, t0 };
+      if (dragging.mode === 'instant') {
+        const t0 = Math.round(dragging.t0 + dt);
+        apiRef.exec(
+          'timeline.updateItem',
+          { id: dragging.id, patch: { t0 } },
+          { mergeKey: `tl:${dragging.id}:drag` }
+        );
+        dragging = { ...dragging, startX: e.clientX, t0 };
+      } else if (dragging.mode === 'span-move') {
+        const patch = moveSpan({ t0: dragging.t0, t1: dragging.t1 }, dt);
+        apiRef.exec(
+          'timeline.updateItem',
+          { id: dragging.id, patch },
+          { mergeKey: `tl:${dragging.id}:drag` }
+        );
+        dragging = { ...dragging, startX: e.clientX, t0: patch.t0, t1: patch.t1 };
+      } else if (dragging.mode === 'span-start' || dragging.mode === 'span-end') {
+        const newT = Math.round(
+          (dragging.mode === 'span-start' ? dragging.t0 : dragging.t1) + dt
+        );
+        const patch = resizeSpanEnd(
+          { t0: dragging.t0, t1: dragging.t1 },
+          dragging.mode === 'span-start' ? 'start' : 'end',
+          newT
+        );
+        apiRef.exec(
+          'timeline.updateItem',
+          { id: dragging.id, patch },
+          { mergeKey: `tl:${dragging.id}:resize` }
+        );
+        dragging = {
+          ...dragging,
+          startX: e.clientX,
+          t0: patch.t0,
+          t1: patch.t1,
+        };
+      }
       render();
       return;
     }
@@ -345,10 +556,28 @@ export function mountTimelineView(root, api) {
     panning = { x: e.clientX, y: e.clientY };
     render();
   });
-  stage.addEventListener('pointerup', () => {
+  stage.addEventListener('pointerup', (e) => {
+    if (spanDraw) {
+      const t1 = clientToTick(e.clientX);
+      const dist = Math.abs(e.clientX - spanDraw.startX);
+      if (dist > 8) {
+        const fields = spanFromDrag(spanDraw.t0, t1, { title: 'Period' });
+        const item = createItem(fields);
+        apiRef.exec('timeline.addItem', { item }, { label: 'Add period' });
+        select(item.id);
+      }
+      spanDraw = null;
+      if (rubber) rubber.hidden = true;
+      render();
+    }
     panning = null;
     dragging = null;
   });
+
+  // Instant drag already set mode-less; fix older instant path
+  // (pointerdown on pills sets mode: 'instant' below — already uses kind: 'instant')
+  // Normalize: rewrite pill drag init was { kind: 'instant' } — pointermove checks mode
+  // Fix pill pointerdown to use mode: 'instant'
 
   const ro = new ResizeObserver(() => render());
   ro.observe(stage);

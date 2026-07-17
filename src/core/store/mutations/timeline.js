@@ -32,9 +32,20 @@ export function addTimelineItem(project, { item }) {
 
 export function updateTimelineItem(project, { id, patch }) {
   const p = ensureProjectTimeline(project);
-  const items = (p.timeline.items || []).map((it) =>
-    it.id === id ? { ...it, ...patch, id: it.id } : it
-  );
+  const items = (p.timeline.items || []).map((it) => {
+    if (it.id !== id) return it;
+    const next = { ...it, ...patch, id: it.id };
+    // Instant has no t1; explicit null clears it (Phase 9 kind toggle)
+    if (next.kind === 'instant' || patch.t1 === null) {
+      delete next.t1;
+      next.kind = next.kind === 'span' && patch.t1 === null ? 'instant' : next.kind || 'instant';
+      if (patch.kind === 'instant') next.kind = 'instant';
+    }
+    if (next.kind === 'span' && next.t1 == null) {
+      next.t1 = (next.t0 || 0) + 365;
+    }
+    return next;
+  });
   return touch({
     ...p,
     timeline: { ...p.timeline, items },

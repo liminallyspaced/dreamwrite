@@ -269,6 +269,31 @@ async function main() {
       JSON.stringify(board8d)
     );
 
+    // Phase 9: timeline span authoring surface
+    const tl9 = await cdp.evaluate(`(() => {
+      try {
+        if (window.PlatenUI?.setView) window.PlatenUI.setView('timeline');
+        if (window.PlatenUI?.timelineAction) window.PlatenUI.timelineAction('period');
+        const periodBtn = document.querySelector('#timelineRoot [data-tl="period"]');
+        const spans = document.querySelectorAll('#timelineRoot .tl-span');
+        const handles = document.querySelectorAll('#timelineRoot .tl-span-handle');
+        const kind = document.querySelector('#timelineRoot .tl-detail-kind');
+        return {
+          hasPeriodBtn: !!periodBtn,
+          spans: spans.length,
+          handles: handles.length,
+          hasKindSelect: !!kind,
+        };
+      } catch (e) {
+        return { error: String(e && e.message || e) };
+      }
+    })()`);
+    check(
+      'timeline 9 span authoring surface',
+      !tl9.error && tl9.hasPeriodBtn && tl9.spans >= 1 && tl9.handles >= 2 && tl9.hasKindSelect,
+      JSON.stringify(tl9)
+    );
+
     // back to script for block typing checks
     await cdp.evaluate(`(() => { if (window.PlatenUI?.setView) window.PlatenUI.setView('script'); })()`);
     await new Promise((r) => setTimeout(r, 200));
