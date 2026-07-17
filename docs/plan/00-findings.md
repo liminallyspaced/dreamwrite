@@ -1,3 +1,11 @@
+# HISTORICAL — do not treat as current
+
+**Superseded 2026-07-17** by `docs/plan/03-master-plan.md`.
+The four load-bearing cracks described below were fixed in Phases 0–5.
+Read the master plan + `docs/architecture/decisions/` for current truth.
+
+---
+
 # Platen — Codebase Findings
 
 **Date:** 2026-07-16
@@ -230,3 +238,4 @@ And the thing the user actually asked for — *"write without worrying about scr
 The fix for Crack 1 is structural, not a patch: there are three implementations of "page," so the fix is **one**. A single pure `paginate(blocks, format) → Page[]` feeding all three consumers (screen, stats, PDF) makes them agree *by construction*.
 
 See `01-roadmap.md`.
+

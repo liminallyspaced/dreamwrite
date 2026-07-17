@@ -28,30 +28,34 @@ occupies next to the script editor** — and they've already validated it for us
 
 ## 2. Element types — the complete inventory
 
-| # | Element | What it does | Tag |
-|---|---------|--------------|-----|
-| 1 | **Note card** | Rich-text card, the primary primitive. Double-click canvas creates one. Background colour incl. transparent. **No embedded images.** | `OFFLINE-OK` |
-| 2 | **Image** | Upload/drag-drop. Resize bottom-right; **⌘/Ctrl while resizing = crop as you resize**. Crop, rotate, draw-on, caption toggle, colour strip, reactions, lock, download original. | `OFFLINE-OK` |
-| 3 | **Link card** | Paste URL → unfurls to preview image + URL + description, all three individually toggleable. Drop a new image to replace the preview. Pasting a *board* URL converts it to a board shortcut. | `NEEDS-NET` (unfurl only) |
-| 4 | **To-do list** | Checkboxes, titles, Tab/Shift+Tab sub-tasks, due dates + reminders, assignees. **Cannot be synced across boards.** | `OFFLINE-OK`; assignees/reminders `NEEDS-SERVER` |
-| 5 | **Sub-board** | A board as a card. See §4. | `OFFLINE-OK` |
-| 6 | **Column** | Vertical container cards snap into. Title, collapse/expand, resize, drop indicator on reorder, permanent card-count label. **Columns can't nest in columns**; boards/documents can go inside. | `OFFLINE-OK` |
-| 7 | **Line / arrow** | Drag from the circle on a selected card's top-right, or from the toolbar. Anchors. Curve via centre marker; double-click handle to straighten. Text labels. Colour + weight. Shift constrains. | `OFFLINE-OK` |
-| 8 | **Comment card** | Standalone **or** attached to a card (drag-and-hold until it shrinks to a marker). Threaded replies, @mentions, reactions. | see §7 — partly `OFFLINE-OK` |
-| 9 | **Table** | Cell types: Auto, Number, Currency, Percentage, Checkbox, Text, Date/Time. Drag to add rows/cols, resize, reorder headers. **Text/numbers/checkboxes only — no images or nested elements. Row height fixed.** | `OFFLINE-OK` |
-| 10 | **Table formulas** | Press `=`. Date&Time, Math&Trig, Statistical, Text, Logical, Financial, Lookup&Reference, Engineering, Information — SUM, VLOOKUP, IF, PMT, CONCATENATE, STDEV, NPV… | `OFFLINE-OK` |
-| 11 | **Sketch card** | Dedicated resizable drawing card; double-click to open. | `OFFLINE-OK` |
-| 12 | **Draw tool** | Freehand scribble **anywhere on the canvas**, not confined to a card. | `OFFLINE-OK` |
-| 13 | **Draw-on-image** | Annotate an image; strokes resize *with* the image. | `OFFLINE-OK` |
-| 14 | **Document** | Long-form text container, distinct from a note. Notes auto-offer conversion past a length. Icon or preview via **Card View**. Exports PDF/Word/Markdown/plain text. **Text only — no images.** | `OFFLINE-OK` |
-| 15 | **File attachment** | Any supported file as a card. | `OFFLINE-OK` |
-| 16 | **Video** | **Upload** (mp4/mkv/webm/mov/avi/mpeg) → autoplay, loop, custom thumbnail. **Embed** (YouTube/Vimeo) → live player. | upload `OFFLINE-OK` / embed `NEEDS-NET` |
-| 17 | **Audio** | **Upload** (mp3/m4a/wav/opus/oga) → autoplay + loop. **Embed**: Spotify, SoundCloud, YouTube Music, Bandcamp, Mixcloud, Apple Music, Vimeo. **No recording, no waveform editing.** | upload `OFFLINE-OK` / embed `NEEDS-NET` |
-| 18 | **Map card** | **Google Maps only.** Paste a share link → interactive embed. | `NEEDS-NET` |
-| 19 | **Colour swatch** | Auto-picks a colour from board images and names it. Paste HEX, picker sliders, or **eyedropper from board images**. Display HEX/RGB/HSL. | `OFFLINE-OK` |
-| 20 | **Synced note** | Duplicate → "Keep this copy in sync" → all copies update together. Indicator shows which boards hold copies. **Notes only** — not images, links, or to-dos. | `OFFLINE-OK` |
-| 21 | **Board shortcut** | An alias. Right-click → "Create a shortcut to this board". Deleting the original breaks shortcuts; deleting a shortcut doesn't affect the original. | `OFFLINE-OK` |
-| 22 | **Reactions** | Emoji on images, notes, comments. | solo `OFFLINE-OK` / shared `NEEDS-SERVER` |
+**Implemented?** column (2026-07-17 audit / master plan Phase 8): what DreamWrite actually ships today vs Milanote inventory. Update when Phase 8 gates land.
+
+| # | Element | What it does | Tag | Implemented? |
+|---|---------|--------------|-----|--------------|
+| 1 | **Note card** | Rich-text card, the primary primitive. Double-click canvas creates one. Background colour incl. transparent. **No embedded images.** | `OFFLINE-OK` | **Yes** — title+body; double-click canvas; no rich-text/bg colors yet |
+| 2 | **Image** | Upload/drag-drop. Resize bottom-right; **⌘/Ctrl while resizing = crop as you resize**. Crop, rotate, draw-on, caption toggle, colour strip, reactions, lock, download original. | `OFFLINE-OK` | **Partial** — toolbar import + caption + replace; no resize/crop/draw |
+| 3 | **Link card** | Paste URL → unfurls to preview image + URL + description, all three individually toggleable. Drop a new image to replace the preview. Pasting a *board* URL converts it to a board shortcut. | `NEEDS-NET` (unfurl only) | **No** (skip — net) |
+| 4 | **To-do list** | Checkboxes, titles, Tab/Shift+Tab sub-tasks, due dates + reminders, assignees. **Cannot be synced across boards.** | `OFFLINE-OK`; assignees/reminders `NEEDS-SERVER` | **Model/render only** — no create UI (Phase 8c) |
+| 5 | **Sub-board** | A board as a card. See §4. | `OFFLINE-OK` | **Partial** — create + open; nest polish Phase 8d |
+| 6 | **Column** | Vertical container cards snap into. Title, collapse/expand, resize, drop indicator on reorder, permanent card-count label. **Columns can't nest in columns**; boards/documents can go inside. | `OFFLINE-OK` | **Render/template only** — no snap container (Phase 8c) |
+| 7 | **Line / arrow** | Drag from the circle on a selected card's top-right, or from the toolbar. Anchors. Curve via centre marker; double-click handle to straighten. Text labels. Colour + weight. Shift constrains. | `OFFLINE-OK` | **Dead feature** — modeled + rendered, **no create UI** (Phase 8b) |
+| 8 | **Comment card** | Standalone **or** attached to a card (drag-and-hold until it shrinks to a marker). Threaded replies, @mentions, reactions. | see §7 — partly `OFFLINE-OK` | **No** (collab skip) |
+| 9 | **Table** | Cell types: Auto, Number, Currency, Percentage, Checkbox, Text, Date/Time. Drag to add rows/cols, resize, reorder headers. **Text/numbers/checkboxes only — no images or nested elements. Row height fixed.** | `OFFLINE-OK` | **Partial** — basic table + row/col |
+| 10 | **Table formulas** | Press `=`. Date&Time, Math&Trig, Statistical, Text, Logical, Financial, Lookup&Reference, Engineering, Information — SUM, VLOOKUP, IF, PMT, CONCATENATE, STDEV, NPV… | `OFFLINE-OK` | **Partial** — limited formula support if present; not full Milanote set |
+| 11 | **Sketch card** | Dedicated resizable drawing card; double-click to open. | `OFFLINE-OK` | **No** (skip) |
+| 12 | **Draw tool** | Freehand scribble **anywhere on the canvas**, not confined to a card. | `OFFLINE-OK` | **No** (skip) |
+| 13 | **Draw-on-image** | Annotate an image; strokes resize *with* the image. | `OFFLINE-OK` | **No** (skip) |
+| 14 | **Document** | Long-form text container, distinct from a note. Notes auto-offer conversion past a length. Icon or preview via **Card View**. Exports PDF/Word/Markdown/plain text. **Text only — no images.** | `OFFLINE-OK` | **No** |
+| 15 | **File attachment** | Any supported file as a card. | `OFFLINE-OK` | **No** |
+| 16 | **Video** | **Upload** (mp4/mkv/webm/mov/avi/mpeg) → autoplay, loop, custom thumbnail. **Embed** (YouTube/Vimeo) → live player. | upload `OFFLINE-OK` / embed `NEEDS-NET` | **No** (skip) |
+| 17 | **Audio** | **Upload** (mp3/m4a/wav/opus/oga) → autoplay + loop. **Embed**: Spotify, SoundCloud, YouTube Music, Bandcamp, Mixcloud, Apple Music, Vimeo. **No recording, no waveform editing.** | upload `OFFLINE-OK` / embed `NEEDS-NET` | **No** (skip) |
+| 18 | **Map card** | **Google Maps only.** Paste a share link → interactive embed. | `NEEDS-NET` | **No** (skip) |
+| 19 | **Colour swatch** | Auto-picks a colour from board images and names it. Paste HEX, picker sliders, or **eyedropper from board images**. Display HEX/RGB/HSL. | `OFFLINE-OK` | **No** — card colors planned semantic only (Phase 8c) |
+| 20 | **Synced note** | Duplicate → "Keep this copy in sync" → all copies update together. Indicator shows which boards hold copies. **Notes only** — not images, links, or to-dos. | `OFFLINE-OK` | **No** (skip) |
+| 21 | **Board shortcut** | An alias. Right-click → "Create a shortcut to this board". Deleting the original breaks shortcuts; deleting a shortcut doesn't affect the original. | `OFFLINE-OK` | **No** |
+| 22 | **Reactions** | Emoji on images, notes, comments. | solo `OFFLINE-OK` / shared `NEEDS-SERVER` | **No** |
+| — | **Scene-card** | Script scene as board card (entity link). | DreamWrite | **Yes** — Sync scenes |
+| — | **Selection / marquee / resize** | Canvas multi-select and card resize. | — | **No** (Phase 8a) |
 
 **Link-card embed sources** (all `NEEDS-NET`): YouTube, Vimeo, TED, SoundCloud, Google Maps, CodePen,
 Instagram, Dribbble, Flickr, Slideshare, Prezi, Marvel, Airtable, Threads, Behance.

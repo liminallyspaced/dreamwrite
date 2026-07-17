@@ -1,4 +1,4 @@
-/* global scriptdesk */
+/* global dreamwrite, scriptdesk */
 import {
   setBlockDomText,
   readBlockText,
@@ -38,7 +38,8 @@ import { mountBoardView } from './views/board/board-view.js';
   // this file is one big IIFE that other code reaches into. Becomes a real import
   // as the split continues. See docs/plan/01-roadmap.md Phase 0.
   const E = window.ScriptEngine;
-  const api = window.scriptdesk;
+  // Prefer window.dreamwrite; scriptdesk is a one-release deprecated alias (Phase 6).
+  const api = window.dreamwrite || window.scriptdesk;
 
   const state = {
     project: E.emptyProject(),
@@ -180,6 +181,9 @@ import { mountBoardView } from './views/board/board-view.js';
     notesArea: $('#notesArea'),
     historyList: $('#historyList'),
     helpModal: $('#helpModal'),
+    exportSheet: $('#exportSheet'),
+    statusLint: $('#statusLint'),
+    lintPopover: $('#lintPopover'),
   };
 
   /* ---------- bootstrap ---------- */
@@ -239,14 +243,27 @@ import { mountBoardView } from './views/board/board-view.js';
     $('#helpModal').onclick = (e) => {
       if (e.target === els.helpModal) showHelp(false);
     };
-    $('#btnExportPdf').onclick = () => exportPdf();
-    const pdf2 = $('#btnExportPdf2');
-    if (pdf2) pdf2.onclick = () => exportPdf();
-    const f1 = $('#btnExportFountain');
-    const f2 = $('#btnExportFountain2');
-    if (f1) f1.onclick = () => exportFountain();
-    if (f2) f2.onclick = () => exportFountain();
-    $('#btnSnapshot').onclick = () => snapshot('manual');
+    const openExport = () => showExportSheet(true);
+    const closeExport = () => showExportSheet(false);
+    $('#btnExport')?.addEventListener('click', openExport);
+    $('#btnExportFab')?.addEventListener('click', openExport);
+    $('#exportSheetClose')?.addEventListener('click', closeExport);
+    els.exportSheet?.addEventListener('click', (e) => {
+      if (e.target === els.exportSheet) closeExport();
+    });
+    $('#btnExportPdf')?.addEventListener('click', () => {
+      closeExport();
+      exportPdf();
+    });
+    $('#btnExportFountain')?.addEventListener('click', () => {
+      closeExport();
+      exportFountain();
+    });
+    $('#btnSnapshot')?.addEventListener('click', () => {
+      closeExport();
+      snapshot('manual');
+    });
+    els.statusLint?.addEventListener('click', () => toggleLintPopover());
     $('#btnAddScene').onclick = () => insertSceneAtEnd();
 
     // Format ribbon — element styles
@@ -604,34 +621,34 @@ import { mountBoardView } from './views/board/board-view.js';
 
   async function openProject() {
     if (!api) {
-      alert('File dialogs require the desktop app.');
+      reportSaveProblem('file', 'Open unavailable — bridge not loaded.', null);
       return;
     }
     try {
       const res = await api.openProject();
       await adoptOpenResult(res);
     } catch (err) {
-      alert(`Could not open project.\n\n${err?.message || err}`);
+      reportSaveProblem('file', 'Could not open project.', err);
     }
   }
 
   async function openProjectFolder() {
     if (!api?.openProjectFolder) {
-      alert('Folder open requires the desktop app.');
+      reportSaveProblem('file', 'Folder open unavailable — bridge not loaded.', null);
       return;
     }
     try {
       const res = await api.openProjectFolder();
       await adoptOpenResult(res);
     } catch (err) {
-      alert(`Could not open project folder.\n\n${err?.message || err}`);
+      reportSaveProblem('file', 'Could not open project folder.', err);
     }
   }
 
   async function saveProject(saveAs) {
     if (!api) {
       persistLocal();
-      alert('Saved to local autosave. Use the DreamWrite desktop app for real files.');
+      reportSaveProblem('file', 'Saved to local autosave only (no file bridge).', null);
       return;
     }
     // Strip history for v2 disk shape when main will re-split; full project is fine for v1.
@@ -649,8 +666,11 @@ import { mountBoardView } from './views/board/board-view.js';
       // This had NO try/catch, and the callers are `onclick = () => saveProject()`,
       // so a rejected IPC became an unhandled rejection: you press Save, nothing
       // happens, and nothing tells you. findings.md §5.5 #2.
-      reportSaveProblem('file', 'Save failed — your changes are NOT on disk.', err);
-      alert(`Could not save the project.\n\n${err?.message || err}\n\nYour work is still in the editor. Try Save As to a different location.`);
+      reportSaveProblem(
+        'file',
+        'Save failed — changes NOT on disk. Try Save As to another location.',
+        err
+      );
       return;
     }
 
@@ -1958,6 +1978,8 @@ import { mountBoardView } from './views/board/board-view.js';
   }
 
   function renderHistory() {
+    // Phase 6: history list left the right rail; full History UI is Phase 10.
+    if (!els.historyList) return;
     const list = state.project.history || [];
     if (!list.length) {
       els.historyList.innerHTML = '<div style="color:var(--text-faint)">No snapshots yet.</div>';
@@ -2009,23 +2031,38 @@ import { mountBoardView } from './views/board/board-view.js';
     });
   }
 
+  function showExportSheet(on) {
+    if (!els.exportSheet) return;
+    els.exportSheet.hidden = !on;
+  }
+
+  function toggleLintPopover() {
+    if (!els.lintPopover) return;
+    els.lintPopover.hidden = !els.lintPopover.hidden;
+  }
+
   function refreshStats() {
     const s = E.computeStats(state.project);
-    $('#stPages').textContent = s.pages;
-    $('#stRuntime').textContent = `${s.runtimeMin}m`;
-    $('#stScenes').textContent = s.scenes;
-    $('#stWords').textContent = s.words;
-    $('#stChars').textContent = s.characters;
-    $('#stDlg').textContent = `${s.dialoguePct}%`;
     paintPageNumbers(s.pages);
     const lint = E.lintScript(state.project);
-    const warns = lint.issues.filter((i) => i.level === 'warn').length;
-    const lintBit = warns ? ` · ${warns} format flag${warns > 1 ? 's' : ''}` : '';
-    els.statusCounts.textContent = `${s.pages}p · ~${s.runtimeMin} min · ${s.scenes} sc · ${s.words}w${lintBit}`;
-    els.statusCounts.title = lint.issues
-      .slice(0, 12)
-      .map((i) => `${i.level.toUpperCase()}${i.line ? ` L${i.line}` : ''}: ${i.msg}`)
-      .join('\n') || 'Industry format OK';
+    const warns = lint.issues.filter((i) => i.level === 'warn' || i.level === 'error').length;
+    if (els.statusCounts) {
+      els.statusCounts.textContent = `${s.pages}p · ~${s.runtimeMin} min · ${s.scenes} sc · ${s.words}w`;
+      els.statusCounts.title = `${s.characters} characters · ${s.dialoguePct}% dialogue`;
+    }
+    if (els.statusLint) {
+      if (warns) {
+        els.statusLint.hidden = false;
+        els.statusLint.textContent = `${warns} flag${warns > 1 ? 's' : ''}`;
+        els.statusLint.title = lint.issues
+          .slice(0, 12)
+          .map((i) => `${i.level.toUpperCase()}${i.line ? ` L${i.line}` : ''}: ${i.msg}`)
+          .join('\n');
+      } else {
+        els.statusLint.hidden = true;
+        if (els.lintPopover) els.lintPopover.hidden = true;
+      }
+    }
     refreshCastSnippets();
     renderLintPanel(lint);
   }
@@ -2088,13 +2125,13 @@ import { mountBoardView } from './views/board/board-view.js';
       /** Content-addressed image import (desktop). Returns { id, mime, ext } or null. */
       importImage: async () => {
         if (!api?.importImage) {
-          alert('Image import requires the DreamWrite desktop app.');
+          reportSaveProblem('file', 'Image import unavailable — bridge not loaded.', null);
           return null;
         }
         try {
           return await api.importImage();
         } catch (err) {
-          alert(`Could not import image.\n\n${err?.message || err}`);
+          reportSaveProblem('file', 'Could not import image.', err);
           return null;
         }
       },

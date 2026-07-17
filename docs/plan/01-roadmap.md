@@ -1,3 +1,11 @@
+# HISTORICAL — do not treat as current
+
+**Superseded 2026-07-17** by `docs/plan/03-master-plan.md`.
+The four load-bearing cracks described below were fixed in Phases 0–5.
+Read the master plan + `docs/architecture/decisions/` for current truth.
+
+---
+
 # Platen — Build Roadmap
 
 **Date:** 2026-07-16
@@ -373,3 +381,4 @@ Per global operating notes: consult `LLM-Wiki/wiki/index.md` before substantial 
 | 5 | Start from a beat-sheet template; clip references from the web. |
 
 **Phase 1 + 2 alone is the app the pitch already claims to be.** Everything after is the expansion.
+

@@ -426,7 +426,7 @@ ipcMain.handle('dialog:openProject', async () => {
     title: 'Open DreamWrite Project',
     defaultPath: defaultProjectsDir(),
     filters: [
-      { name: 'DreamWrite Project', extensions: ['platen', 'sdesk', 'json'] },
+      { name: 'DreamWrite Project', extensions: ['platen', 'dreamwrite', 'sdesk', 'json'] },
       { name: 'Fountain', extensions: ['fountain', 'spmd'] },
       { name: 'All Files', extensions: ['*'] },
     ],
@@ -710,27 +710,20 @@ ipcMain.handle('export:pdf', async (_e, { html, suggestedName }) => {
 });
 
 /**
- * Phase 4 gate: renderer must not read/write arbitrary paths.
+ * Phase 6 / Phase 4 gate: renderer must not read/write arbitrary paths.
  * Allow only under userData, documents, app directory, or the open project root.
+ * Pure logic lives in lib/allowed-path.js (unit-tested).
  */
+const { assertPathAllowed: assertPathAllowedPure } = require('./lib/allowed-path');
+
 function assertPathAllowed(filePath) {
-  if (!filePath || typeof filePath !== 'string') {
-    throw new Error('Path required');
-  }
-  const resolved = path.resolve(filePath);
   const allowedRoots = [
-    path.resolve(app.getPath('userData')),
-    path.resolve(app.getPath('documents')),
-    path.resolve(__dirname),
+    app.getPath('userData'),
+    app.getPath('documents'),
+    __dirname,
   ];
-  if (activeProjectRoot) allowedRoots.push(path.resolve(activeProjectRoot));
-  const ok = allowedRoots.some(
-    (root) => resolved === root || resolved.startsWith(root + path.sep)
-  );
-  if (!ok) {
-    throw new Error('Path outside allowed directories');
-  }
-  return resolved;
+  if (activeProjectRoot) allowedRoots.push(activeProjectRoot);
+  return assertPathAllowedPure(filePath, allowedRoots, path.resolve, path.sep);
 }
 
 ipcMain.handle('fs:readText', async (_e, filePath) => {

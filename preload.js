@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('scriptdesk', {
+/** Shared IPC surface for the renderer (DreamWrite). */
+const dreamwriteApi = {
   openProject: () => ipcRenderer.invoke('dialog:openProject'),
   openProjectFolder: () => ipcRenderer.invoke('dialog:openProjectFolder'),
   saveProject: (payload) => ipcRenderer.invoke('dialog:saveProject', payload),
@@ -41,4 +42,9 @@ contextBridge.exposeInMainWorld('scriptdesk', {
       ipcRenderer.on(ch, (_e, payload) => handler(ch, payload));
     });
   },
-});
+};
+
+// Canonical bridge name.
+contextBridge.exposeInMainWorld('dreamwrite', dreamwriteApi);
+// Deprecated alias — remove after one release (Phase 6+). Prefer window.dreamwrite.
+contextBridge.exposeInMainWorld('scriptdesk', dreamwriteApi);

@@ -22,7 +22,7 @@
           <button class="ghost" id="btnNew" title="New">New</button>
           <button class="ghost" id="btnOpen" title="Open">Open</button>
           <button class="ghost" id="btnSave" title="Save">Save</button>
-          <button class="ghost" id="btnExportPdf" title="PDF">PDF</button>
+          <button class="ghost" id="btnExport" title="Export (Fountain, PDF, snapshot)">Export</button>
         </div>
         <div class="project-title slim">
           <span class="dirty-dot" id="dirtyDot"></span>
@@ -127,7 +127,6 @@
           <div class="panel-footer-docs">
             <button class="ghost doc-link" data-view="title">Title Page</button>
             <button class="ghost doc-link" data-view="notes">Notes</button>
-            <button class="ghost" id="btnExportFountain">Export Fountain</button>
           </div>
         </div>
       </aside>
@@ -225,29 +224,28 @@
         </section>
       </main>
 
-      <aside id="rightbar" class="panel rail-right">
-        <div class="panel-header"><span>Stats</span></div>
-        <div class="panel-body">
-          <div class="stat-grid">
-            <div class="stat-card"><div class="stat-val" id="stPages">1</div><div class="stat-label">Pages</div></div>
-            <div class="stat-card"><div class="stat-val" id="stRuntime">1m</div><div class="stat-label">Runtime</div></div>
-            <div class="stat-card"><div class="stat-val" id="stScenes">0</div><div class="stat-label">Scenes</div></div>
-            <div class="stat-card"><div class="stat-val" id="stWords">0</div><div class="stat-label">Words</div></div>
-            <div class="stat-card"><div class="stat-val" id="stChars">0</div><div class="stat-label">Characters</div></div>
-            <div class="stat-card"><div class="stat-val" id="stDlg">0%</div><div class="stat-label">Dialogue</div></div>
-          </div>
-          <div class="panel-header" style="padding:8px 0;border:none"><span>Export</span></div>
-          <div style="display:grid;gap:8px">
-            <button id="btnExportFountain2">Export Fountain</button>
-            <button id="btnExportPdf2">Export PDF</button>
-            <button id="btnSnapshot">Revision snapshot</button>
-          </div>
-          <div class="panel-header" style="padding:16px 0 8px;border:none"><span>Format check</span></div>
-          <div id="lintList"></div>
-          <div class="panel-header" style="padding:8px 0;border:none"><span>Revisions</span></div>
-          <div id="historyList"></div>
+      <!-- Right stats rail removed (Phase 6 chrome diet). Counts + lint live in the status bar. -->
+    </div>
+
+    <!-- Bottom-right export entry + sheet (Phase 6) -->
+    <button type="button" id="btnExportFab" class="export-fab" title="Export">Export</button>
+    <div id="exportSheet" class="export-sheet" hidden role="dialog" aria-label="Export" aria-modal="true">
+      <div class="export-sheet-panel">
+        <header class="export-sheet-head">
+          <strong>Export</strong>
+          <button type="button" class="ghost" id="exportSheetClose" aria-label="Close">✕</button>
+        </header>
+        <div class="export-sheet-body">
+          <button type="button" class="export-opt" id="btnExportFountain">Fountain (.fountain)</button>
+          <button type="button" class="export-opt" id="btnExportPdf">PDF</button>
+          <button type="button" class="export-opt" id="btnSnapshot">Revision snapshot</button>
         </div>
-      </aside>
+      </div>
+    </div>
+
+    <div id="lintPopover" class="lint-popover" hidden>
+      <div class="lint-popover-head">Format check</div>
+      <div id="lintList"></div>
     </div>
 
     <footer id="statusbar">
@@ -260,7 +258,8 @@
       <span id="statusPath">No file · local autosave</span>
       <span class="grow"></span>
       <span class="pill" id="statusElement">Action</span>
-      <span id="statusCounts">1p</span>
+      <span id="statusCounts" class="status-counts" title="Page · runtime · scenes · words">1p</span>
+      <button type="button" class="pill ghost-pill" id="statusLint" title="Format check" hidden>0 flags</button>
       <span class="pill" id="mmbHint">MMB · mark / wheel / pan</span>
     </footer>
   </div>
