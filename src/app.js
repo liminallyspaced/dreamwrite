@@ -218,7 +218,14 @@ import {
       boardAction: (cmd) => {
         setView('board');
         ensureBoardMounted();
-        const map = { note: 'note', image: 'image', table: 'table', sync: 'sync', sub: 'sub' };
+        const map = {
+          note: 'note',
+          image: 'image',
+          table: 'table',
+          sync: 'sync',
+          sub: 'sub',
+          arrow: 'arrow',
+        };
         const key = map[cmd];
         if (key) $('#boardRoot')?.querySelector(`[data-bd="${key}"]`)?.click();
       },

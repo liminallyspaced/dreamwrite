@@ -92,9 +92,15 @@ export function createBoardItem(type, fields = {}) {
         w: 0,
         h: 0,
         fromId: fields.fromId,
-        toId: fields.toId,
+        toId: fields.toId ?? null,
+        freeX: fields.freeX ?? null,
+        freeY: fields.freeY ?? null,
+        fromSide: fields.fromSide || null,
+        toSide: fields.toSide || null,
         label: fields.label || '',
         curved: fields.curved !== false,
+        color: fields.color || 'rgba(30,25,20,0.55)',
+        weight: fields.weight ?? 1.5,
       };
     case 'todo':
       return {

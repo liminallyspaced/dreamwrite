@@ -19,6 +19,17 @@ import {
   normalizeRect,
   clampResize,
 } from '../../core/board/selection.js';
+import {
+  cardAnchor,
+  facingSide,
+  facingSides,
+  constrainHV,
+  connectorPathD,
+  resolveEndpoints,
+  hitTestCard,
+  segmentMid,
+  makeConnectorFields,
+} from '../../core/board/connectors.js';
 import { listTemplates } from '../../core/board/templates.js';
 import {
   normalizeTable,
@@ -54,6 +65,7 @@ export function mountBoardView(root, api) {
       <button type="button" class="primary-soft" data-bd="note">+ Note</button>
       <button type="button" class="ghost" data-bd="image" title="Import image asset">+ Image</button>
       <button type="button" class="ghost" data-bd="table" title="Add table card">+ Table</button>
+      <button type="button" class="ghost" data-bd="arrow" title="Connect cards (or drag edge ports)">+ Arrow</button>
       <button type="button" class="ghost" data-bd="sync" title="Place a card per scene">Sync scenes</button>
       <button type="button" class="ghost" data-bd="sub">+ Sub-board</button>
       <select class="bd-templates" title="Writing templates" aria-label="Templates">
@@ -87,8 +99,25 @@ export function mountBoardView(root, api) {
   let resize = null;
   /** @type {null | { x0: number, y0: number, additive: boolean }} */
   let marquee = null;
+  /**
+   * Active connector drag / toolbar link mode.
+   * @type {null | {
+   *   fromId: string,
+   *   fromSide: string,
+   *   x: number,
+   *   y: number,
+   *   shift: boolean,
+   * }}
+   */
+  let linking = null;
+  /** Toolbar: click first card then second */
+  let linkArmed = false;
+  /** @type {string | null} */
+  let selectedConnectorId = null;
   let panning = null;
   let apiRef = api;
+  /** Rubber-band SVG path while linking */
+  let rubberEl = null;
 
   function setApi(next) {
     apiRef = next;
@@ -239,6 +268,7 @@ export function mountBoardView(root, api) {
         if (e.button !== 0) return;
         e.stopPropagation();
         stage.focus();
+        selectedConnectorId = null;
         if (e.shiftKey) {
           selection = toggleInSelection(selection, it.id);
         } else if (!selection.has(it.id)) {
@@ -283,6 +313,60 @@ export function mountBoardView(root, api) {
         paintSelectionOnly();
       });
       el.appendChild(handle);
+
+      // Connector ports on selected cards (Phase 8b)
+      if (selection.has(it.id) || linkArmed) {
+        for (const side of ['n', 'e', 's', 'w']) {
+          const port = document.createElement('div');
+          port.className = `bd-port bd-port-${side}`;
+          port.dataset.side = side;
+          port.title = 'Drag to connect';
+          port.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.preventDefault();
+            selectedConnectorId = null;
+            const anchor = cardAnchor(it, side);
+            linking = {
+              fromId: it.id,
+              fromSide: side,
+              x: anchor.x,
+              y: anchor.y,
+              shift: e.shiftKey,
+            };
+            ensureRubber();
+            updateRubber(anchor);
+            stage.setPointerCapture(e.pointerId);
+          });
+          el.appendChild(port);
+        }
+      }
+
+      // Toolbar link mode: click source then target
+      if (linkArmed) {
+        el.addEventListener(
+          'click',
+          (e) => {
+            if (e.target.closest('input, textarea, button, .bd-resize, .bd-port')) return;
+            e.stopPropagation();
+            if (!linking) {
+              const sides = facingSides(it, { x: it.x + (it.w || 100) + 40, y: it.y });
+              linking = {
+                fromId: it.id,
+                fromSide: sides.fromSide,
+                x: cardAnchor(it, sides.fromSide).x,
+                y: cardAnchor(it, sides.fromSide).y,
+                shift: false,
+              };
+              ensureRubber();
+              return;
+            }
+            if (linking.fromId === it.id) return;
+            finishLinkToCard(it.id);
+          },
+          { capture: true }
+        );
+      }
 
       const titleIn = el.querySelector('.bd-card-title');
       if (titleIn) {
@@ -423,37 +507,197 @@ export function mountBoardView(root, api) {
       layer.appendChild(el);
     }
 
-    // Connectors as SVG overlay inside layer
+    // Connectors as interactive SVG overlay (Phase 8b)
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.classList.add('bd-connectors');
     svg.style.position = 'absolute';
     svg.style.left = '0';
     svg.style.top = '0';
     svg.style.overflow = 'visible';
+    svg.style.pointerEvents = 'none';
     svg.setAttribute('width', '1');
     svg.setAttribute('height', '1');
+
+    // defs arrowhead
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+      <marker id="bd-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L6,3 L0,6 Z" fill="rgba(30,25,20,0.65)" />
+      </marker>`;
+    svg.appendChild(defs);
+
     for (const id of board.items || []) {
       const c = g.items[id];
       if (!c || c.type !== 'connector') continue;
-      const a = g.items[c.fromId];
-      const b = g.items[c.toId];
-      if (!a || !b) continue;
-      const x1 = a.x + a.w / 2;
-      const y1 = a.y + a.h / 2;
-      const x2 = b.x + b.w / 2;
-      const y2 = b.y + b.h / 2;
+      const ep = resolveEndpoints(c, g.items);
+      if (!ep.ok) continue;
+      const d = connectorPathD(ep.p0, ep.p1, { curved: c.curved !== false });
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      hit.setAttribute('d', d);
+      hit.setAttribute('fill', 'none');
+      hit.setAttribute('stroke', 'transparent');
+      hit.setAttribute('stroke-width', '12');
+      hit.style.pointerEvents = 'stroke';
+      hit.style.cursor = 'pointer';
+      hit.dataset.connectorId = id;
+
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      const mx = (x1 + x2) / 2;
-      const d = c.curved
-        ? `M ${x1} ${y1} Q ${mx} ${y1} ${mx} ${(y1 + y2) / 2} T ${x2} ${y2}`
-        : `M ${x1} ${y1} L ${x2} ${y2}`;
       line.setAttribute('d', d);
       line.setAttribute('fill', 'none');
-      line.setAttribute('stroke', 'rgba(30,25,20,0.45)');
-      line.setAttribute('stroke-width', '1.5');
+      line.setAttribute('stroke', c.color || 'rgba(30,25,20,0.55)');
+      line.setAttribute('stroke-width', String(c.weight ?? 1.5));
+      line.setAttribute('marker-end', 'url(#bd-arrow)');
+      line.style.pointerEvents = 'none';
+      if (selectedConnectorId === id) {
+        line.setAttribute('stroke', '#111');
+        line.setAttribute('stroke-width', '2.25');
+      }
+
+      hit.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        selectedConnectorId = id;
+        selection = clearSelection();
+        render();
+      });
+      hit.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        apiRef.exec(
+          'board.updateItem',
+          { id, patch: { curved: c.curved === false } },
+          { label: 'Toggle connector curve' }
+        );
+        render();
+      });
+
+      svg.appendChild(hit);
       svg.appendChild(line);
+
+      // Label at mid
+      const mid = segmentMid(ep.p0, ep.p1);
+      if (c.label || selectedConnectorId === id) {
+        const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+        fo.setAttribute('x', String(mid.x - 60));
+        fo.setAttribute('y', String(mid.y - 12));
+        fo.setAttribute('width', '120');
+        fo.setAttribute('height', '24');
+        fo.style.pointerEvents = 'auto';
+        fo.style.overflow = 'visible';
+        const input = document.createElement('input');
+        input.className = 'bd-conn-label';
+        input.value = c.label || '';
+        input.placeholder = 'Label…';
+        input.addEventListener('change', () => {
+          apiRef.exec(
+            'board.updateItem',
+            { id, patch: { label: input.value } },
+            { mergeKey: `bd:${id}:label`, label: 'Connector label' }
+          );
+        });
+        input.addEventListener('pointerdown', (e) => e.stopPropagation());
+        fo.appendChild(input);
+        svg.appendChild(fo);
+      }
     }
+
+    // Rubber-band while linking
+    rubberEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    rubberEl.classList.add('bd-rubber');
+    rubberEl.setAttribute('fill', 'none');
+    rubberEl.setAttribute('stroke', 'rgba(30,25,20,0.45)');
+    rubberEl.setAttribute('stroke-width', '1.5');
+    rubberEl.setAttribute('stroke-dasharray', '4 3');
+    rubberEl.style.pointerEvents = 'none';
+    rubberEl.setAttribute('d', '');
+    svg.appendChild(rubberEl);
     layer.appendChild(svg);
+
+    if (linkArmed) {
+      stage.classList.add('bd-link-armed');
+    } else {
+      stage.classList.remove('bd-link-armed');
+    }
+  }
+
+  function ensureRubber() {
+    if (rubberEl && linking) {
+      const d = connectorPathD(
+        { x: linking.x, y: linking.y },
+        { x: linking.x, y: linking.y },
+        { curved: false }
+      );
+      rubberEl.setAttribute('d', d);
+    }
+  }
+
+  function updateRubber(worldPt) {
+    if (!linking || !rubberEl) return;
+    let p1 = worldPt;
+    if (linking.shift) p1 = constrainHV({ x: linking.x, y: linking.y }, p1);
+    rubberEl.setAttribute(
+      'd',
+      connectorPathD({ x: linking.x, y: linking.y }, p1, { curved: true })
+    );
+  }
+
+  function finishLinkToCard(toId) {
+    if (!linking || linking.fromId === toId) {
+      linking = null;
+      linkArmed = false;
+      render();
+      return;
+    }
+    const g = graph();
+    const from = g.items[linking.fromId];
+    const to = g.items[toId];
+    if (!from || !to) {
+      linking = null;
+      render();
+      return;
+    }
+    const sides = facingSides(from, to);
+    const boardId = ensureBoardId();
+    const fields = makeConnectorFields({
+      fromId: linking.fromId,
+      toId,
+      fromSide: linking.fromSide || sides.fromSide,
+      toSide: sides.toSide,
+      curved: true,
+    });
+    const item = createBoardItem('connector', {
+      id: boardUid('bit'),
+      boardId,
+      ...fields,
+    });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add connector' });
+    selectedConnectorId = item.id;
+    linking = null;
+    linkArmed = false;
+    render();
+  }
+
+  function finishLinkFree(worldPt) {
+    if (!linking) return;
+    let p1 = worldPt;
+    if (linking.shift) p1 = constrainHV({ x: linking.x, y: linking.y }, p1);
+    const boardId = ensureBoardId();
+    const fields = makeConnectorFields({
+      fromId: linking.fromId,
+      toId: null,
+      freeX: Math.round(p1.x),
+      freeY: Math.round(p1.y),
+      fromSide: linking.fromSide || facingSide(graph().items[linking.fromId], p1),
+      curved: true,
+    });
+    const item = createBoardItem('connector', {
+      id: boardUid('bit'),
+      boardId,
+      ...fields,
+    });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add connector' });
+    selectedConnectorId = item.id;
+    linking = null;
+    linkArmed = false;
+    render();
   }
 
   function worldDropPoint() {
@@ -537,6 +781,28 @@ export function mountBoardView(root, api) {
     apiRef.exec('board.addItem', { boardId, item }, { label: 'Add table' });
     render();
   };
+  const arrowBtn = root.querySelector('[data-bd="arrow"]');
+  if (arrowBtn) {
+    arrowBtn.onclick = () => {
+      // Arm click-to-connect: card → card
+      linkArmed = !linkArmed;
+      linking = null;
+      selectedConnectorId = null;
+      arrowBtn.classList.toggle('bd-arrow-on', linkArmed);
+      if (linkArmed && selection.size === 1) {
+        const id = [...selection][0];
+        const it = graph().items[id];
+        if (it) {
+          const side = 'e';
+          const a = cardAnchor(it, side);
+          linking = { fromId: id, fromSide: side, x: a.x, y: a.y, shift: false };
+        }
+      }
+      render();
+      // re-find button after render
+      root.querySelector('[data-bd="arrow"]')?.classList.toggle('bd-arrow-on', linkArmed);
+    };
+  }
   root.querySelector('[data-bd="sync"]').onclick = () => {
     apiRef.exec(
       'board.syncScenes',
@@ -631,6 +897,12 @@ export function mountBoardView(root, api) {
   });
 
   stage.addEventListener('pointermove', (e) => {
+    if (linking) {
+      linking.shift = e.shiftKey;
+      const w = clientToWorld(e.clientX, e.clientY);
+      updateRubber(w);
+      return;
+    }
     if (resize) {
       const dx = (e.clientX - resize.ox) / cam.scale;
       const dy = (e.clientY - resize.oy) / cam.scale;
@@ -683,6 +955,26 @@ export function mountBoardView(root, api) {
   });
 
   stage.addEventListener('pointerup', (e) => {
+    if (linking) {
+      linking.shift = e.shiftKey;
+      let w = clientToWorld(e.clientX, e.clientY);
+      if (linking.shift) w = constrainHV({ x: linking.x, y: linking.y }, w);
+      const cards = selectableItems();
+      const hit = hitTestCard(cards, w);
+      if (hit && hit.id !== linking.fromId) {
+        finishLinkToCard(hit.id);
+      } else {
+        // Free end if dragged far enough, else cancel
+        const dist = Math.hypot(w.x - linking.x, w.y - linking.y);
+        if (dist > 16) finishLinkFree(w);
+        else {
+          linking = null;
+          linkArmed = false;
+          render();
+        }
+      }
+      return;
+    }
     if (resize) {
       const size = resize._preview;
       if (size) {
@@ -768,6 +1060,17 @@ export function mountBoardView(root, api) {
       e.preventDefault();
       selection = clearSelection();
       paintSelectionOnly();
+      return;
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConnectorId) {
+      e.preventDefault();
+      apiRef.exec(
+        'board.removeItem',
+        { id: selectedConnectorId },
+        { label: 'Delete connector' }
+      );
+      selectedConnectorId = null;
+      render();
       return;
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) {
