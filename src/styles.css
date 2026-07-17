@@ -622,6 +622,11 @@ textarea { resize: vertical; min-height: 80px; }
   color: #333;
   z-index: 2;
   opacity: 0.85;
+  /* Typewriter: page stamp drifts slightly with the sheet, not the body */
+  transform: translate(
+    calc(var(--tw-dx, 0px) * 0.35),
+    calc(var(--tw-dy, 0px) * 0.5)
+  );
 }
 .page-number[hidden] {
   display: none !important;
@@ -655,6 +660,8 @@ textarea { resize: vertical; min-height: 80px; }
   position: relative;
   z-index: 2;
   user-select: text;
+  /* Per-page typewriter seating: set --tw-dx/--tw-dy on .page (paint only) */
+  transform: translate(var(--tw-dx, 0px), var(--tw-dy, 0px));
 }
 .block-row { position: relative; margin: 0 0 14px; min-height: 1.15em; }
 .block-row.type-scene { margin-top: 22px; }

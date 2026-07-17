@@ -53,6 +53,10 @@ import {
   paintTitlePreview as paintTitlePreviewPanel,
   syncTitleFromForm as syncTitleFromFormPanel,
 } from './views/panels/side-panels.js';
+import {
+  pageTypewriterJitter,
+  jitterSeedFromKey,
+} from './core/script/typewriter-jitter.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -1260,6 +1264,17 @@ import {
     const page = document.createElement('div');
     page.className = 'page';
     page.dataset.page = String(number);
+
+    // Typewriter micro-wander: paint-only, does not affect paginate() geometry.
+    const seed = jitterSeedFromKey(
+      state.project?.id || state.project?.titlePage?.title || state.filePath || 'dw'
+    );
+    const enabled = state.project?.settings?.typewriterJitter !== false;
+    const j = pageTypewriterJitter(number, { seed, enabled });
+    page.style.setProperty('--tw-dx', `${j.dxPx}px`);
+    page.style.setProperty('--tw-dy', `${j.dyPx}px`);
+    page.dataset.twDx = String(j.dxIn);
+    page.dataset.twDy = String(j.dyIn);
 
     const edge = document.createElement('div');
     edge.className = 'page-edge';

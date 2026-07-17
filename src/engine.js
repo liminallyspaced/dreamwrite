@@ -13,6 +13,10 @@
 
 import { paginate, pageCount } from './core/script/paginate.js';
 import { DEFAULT_FORMAT as PAGE_FORMAT } from './core/script/format.js';
+import {
+  pageTypewriterJitter,
+  jitterSeedFromKey,
+} from './core/script/typewriter-jitter.js';
 import { COURIER_PRIME_REGULAR_BASE64 } from './core/script/courier-prime-regular.js';
 
 const ELEMENTS = ['scene', 'action', 'character', 'parenthetical', 'dialogue', 'transition', 'shot', 'general', 'note'];
@@ -891,11 +895,18 @@ function toPdfHtml(project) {
       </div>
     </div>`;
 
+  const jitterSeed = jitterSeedFromKey(project.id || tp.title || 'dreamwrite');
+  const jitterOn = project.settings?.typewriterJitter !== false;
+
   const scriptPages = pages
     .map((page) => {
+      const j = pageTypewriterJitter(page.number, {
+        seed: jitterSeed,
+        enabled: jitterOn,
+      });
       const num =
         page.number >= (PAGE_FORMAT.pageNumber.startAt || 2)
-          ? `<div class="page-num">${escapeHtml(PAGE_FORMAT.pageNumber.format(page.number))}</div>`
+          ? `<div class="page-num" style="transform:translate(${j.dxIn * 0.35}in,${j.dyIn * 0.5}in)">${escapeHtml(PAGE_FORMAT.pageNumber.format(page.number))}</div>`
           : '';
       const rows = page.rows
         .map((row) => {
@@ -925,9 +936,10 @@ function toPdfHtml(project) {
           return `<div class="${cls}">${text}</div>`;
         })
         .join('\n');
+      // Body base: top 1in, left 1.5in — plus micro typewriter seating
       return `<div class="sheet script-page" data-page="${page.number}">
 ${num}
-<div class="body">${rows}</div>
+<div class="body" style="top:calc(1in + ${j.dyIn}in);left:calc(1.5in + ${j.dxIn}in)">${rows}</div>
 </div>`;
     })
     .join('\n');
