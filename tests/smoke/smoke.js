@@ -168,6 +168,41 @@ async function main() {
     check('dual structure control present', !!smarttype.dualBtn, JSON.stringify(smarttype));
     check('no fake dual marker on sample', !smarttype.hasFakeDual, JSON.stringify(smarttype));
 
+    // Phase 8a: board mounts with selection plumbing (sync scenes → cards → select)
+    const board8a = await cdp.evaluate(`(() => {
+      try {
+        if (window.PlatenUI?.setView) window.PlatenUI.setView('board');
+        if (window.PlatenUI?.boardAction) window.PlatenUI.boardAction('sync');
+        const root = document.querySelector('#boardRoot');
+        const cards = document.querySelectorAll('#boardRoot .bd-card');
+        const first = cards[0];
+        if (first) {
+          first.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+          first.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
+        }
+        const selected = document.querySelectorAll('#boardRoot .bd-card.selected').length;
+        const handle = document.querySelector('#boardRoot .bd-resize');
+        const api = root && root.__platenBoard;
+        return {
+          cards: cards.length,
+          selected,
+          hasResize: !!handle,
+          hasSelectionApi: !!(api && typeof api.getSelection === 'function'),
+        };
+      } catch (e) {
+        return { error: String(e && e.message || e) };
+      }
+    })()`);
+    check(
+      'board 8a selection/resize surface',
+      !board8a.error && board8a.cards > 0 && board8a.hasResize && board8a.hasSelectionApi,
+      JSON.stringify(board8a)
+    );
+
+    // back to script for block typing checks
+    await cdp.evaluate(`(() => { if (window.PlatenUI?.setView) window.PlatenUI.setView('script'); })()`);
+    await new Promise((r) => setTimeout(r, 200));
+
     // --- THE POINT: exercise the extracted block-dom code ----------------------
     // readBlockText / setBlockDomText / placeCaretEnd only run once you type.
     // Prefer an action block so we don't fight scene/character normalisation.

@@ -42,12 +42,41 @@ export function boardUpdateItem(project, { id, patch }) {
   });
 }
 
+/**
+ * Batch update many items in one gesture (group move / multi-resize).
+ * @param {object} project
+ * @param {{ updates: Array<{ id: string, patch: object }> }} payload
+ */
+export function boardUpdateItems(project, { updates }) {
+  let p = ensureProjectBoards(project);
+  let boards = p.boards;
+  for (const u of updates || []) {
+    if (!u?.id || !u.patch) continue;
+    boards = updateBoardItem(boards, u.id, u.patch);
+  }
+  return touch({ ...p, boards });
+}
+
 export function boardRemoveItem(project, { id }) {
   const p = ensureProjectBoards(project);
   return touch({
     ...p,
     boards: removeBoardItem(p.boards, id),
   });
+}
+
+/**
+ * Bulk delete in one undo step.
+ * @param {object} project
+ * @param {{ ids: string[] }} payload
+ */
+export function boardRemoveItems(project, { ids }) {
+  let p = ensureProjectBoards(project);
+  let boards = p.boards;
+  for (const id of ids || []) {
+    boards = removeBoardItem(boards, id);
+  }
+  return touch({ ...p, boards });
 }
 
 export function boardSyncScenes(project, { boardId } = {}) {

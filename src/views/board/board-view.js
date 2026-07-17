@@ -1,5 +1,6 @@
 /**
  * Infinite ink board — notes, scene cards, images, tables, sub-boards, templates.
+ * Phase 8a: selection, marquee, group move, card resize.
  */
 import { createCamera, screenToWorldX, screenToWorldY, zoomAt, panBy } from '../../core/geom/camera.js';
 import {
@@ -8,6 +9,16 @@ import {
   breadcrumbPath,
   uid as boardUid,
 } from '../../core/board/model.js';
+import {
+  createSelection,
+  selectOnly,
+  toggleInSelection,
+  clearSelection,
+  selectAll,
+  selectInRect,
+  normalizeRect,
+  clampResize,
+} from '../../core/board/selection.js';
 import { listTemplates } from '../../core/board/templates.js';
 import {
   normalizeTable,
@@ -53,20 +64,29 @@ export function mountBoardView(root, api) {
     <div class="bd-stage" tabindex="0" role="application" aria-label="Story board">
       <div class="bd-grid" aria-hidden="true"></div>
       <div class="bd-layer"></div>
+      <div class="bd-marquee" hidden aria-hidden="true"></div>
       <div class="bd-empty" hidden>
         <p><strong>Empty board</strong></p>
-        <p class="muted">Double-click for a note · Image · Table · Sync scenes · or a template.</p>
+        <p class="muted">Double-click for a note · marquee / Shift+click select · drag · resize corner</p>
       </div>
     </div>
   `;
 
   const stage = root.querySelector('.bd-stage');
   const layer = root.querySelector('.bd-layer');
+  const marqueeEl = root.querySelector('.bd-marquee');
   const crumbs = root.querySelector('.bd-crumbs');
   const emptyEl = root.querySelector('.bd-empty');
   let cam = createCamera({ scale: 1, lockY: false, minScale: 0.25, maxScale: 3, panX: 40, panY: 40 });
   let currentBoardId = null;
+  /** @type {Set<string>} */
+  let selection = createSelection();
+  /** @type {null | { mode: 'move', ids: string[], ox: number, oy: number, origins: Map<string,{x:number,y:number}> }} */
   let drag = null;
+  /** @type {null | { id: string, ox: number, oy: number, ow: number, oh: number, free: boolean }} */
+  let resize = null;
+  /** @type {null | { x0: number, y0: number, additive: boolean }} */
+  let marquee = null;
   let panning = null;
   let apiRef = api;
 
@@ -122,10 +142,12 @@ export function mountBoardView(root, api) {
       if (!it || it.type === 'connector') continue;
       const el = document.createElement('div');
       el.className = `bd-card type-${it.type}`;
+      if (selection.has(it.id)) el.classList.add('selected');
       el.dataset.id = it.id;
       el.style.left = `${it.x}px`;
       el.style.top = `${it.y}px`;
       el.style.width = `${it.w}px`;
+      el.style.height = `${it.h}px`;
       el.style.minHeight = `${it.h}px`;
       el.style.background = it.color || '#f5f0e6';
 
@@ -212,18 +234,55 @@ export function mountBoardView(root, api) {
       }
 
       el.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.bd-resize')) return;
         if (e.target.closest('input, textarea, button, label, select, table, img')) return;
         if (e.button !== 0) return;
         e.stopPropagation();
+        stage.focus();
+        if (e.shiftKey) {
+          selection = toggleInSelection(selection, it.id);
+        } else if (!selection.has(it.id)) {
+          selection = selectOnly(selection, it.id);
+        }
+        // Group move: all selected (or just this card)
+        const ids = selection.has(it.id) ? [...selection] : [it.id];
+        const origins = new Map();
+        for (const id of ids) {
+          const item = g.items[id];
+          if (item) origins.set(id, { x: item.x, y: item.y });
+        }
         drag = {
+          mode: 'move',
+          ids,
+          ox: e.clientX,
+          oy: e.clientY,
+          origins,
+        };
+        el.setPointerCapture(e.pointerId);
+        paintSelectionOnly();
+      });
+
+      // Resize handle (bottom-right)
+      const handle = document.createElement('div');
+      handle.className = 'bd-resize';
+      handle.title = 'Resize (Ctrl = free aspect for images)';
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        if (!selection.has(it.id)) selection = selectOnly(selection, it.id);
+        resize = {
           id: it.id,
           ox: e.clientX,
           oy: e.clientY,
-          x: it.x,
-          y: it.y,
+          ow: it.w || 200,
+          oh: it.h || 120,
+          free: e.ctrlKey || e.metaKey,
         };
-        el.setPointerCapture(e.pointerId);
+        handle.setPointerCapture(e.pointerId);
+        paintSelectionOnly();
       });
+      el.appendChild(handle);
 
       const titleIn = el.querySelector('.bd-card-title');
       if (titleIn) {
@@ -360,17 +419,7 @@ export function mountBoardView(root, api) {
         });
       }
 
-      // Delete key when card focused
       el.tabIndex = 0;
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-          if (e.target.closest('input, textarea')) return;
-          e.preventDefault();
-          apiRef.exec('board.removeItem', { id: it.id }, { label: 'Delete card' });
-          render();
-        }
-      });
-
       layer.appendChild(el);
     }
 
@@ -518,25 +567,113 @@ export function mountBoardView(root, api) {
     render();
   };
 
+  function paintSelectionOnly() {
+    layer.querySelectorAll('.bd-card').forEach((el) => {
+      el.classList.toggle('selected', selection.has(el.dataset.id));
+    });
+  }
+
+  function selectableItems() {
+    const g = graph();
+    const board = g.boards[ensureBoardId()];
+    if (!board) return [];
+    return (board.items || [])
+      .map((id) => g.items[id])
+      .filter((it) => it && it.type !== 'connector');
+  }
+
+  function clientToWorld(clientX, clientY) {
+    const rect = stage.getBoundingClientRect();
+    return {
+      x: screenToWorldX(cam, clientX - rect.left),
+      y: screenToWorldY(cam, clientY - rect.top),
+    };
+  }
+
+  function updateMarqueeVisual(x0, y0, x1, y1) {
+    if (!marqueeEl) return;
+    const rect = stage.getBoundingClientRect();
+    const r = normalizeRect(x0 - rect.left, y0 - rect.top, x1 - rect.left, y1 - rect.top);
+    marqueeEl.hidden = false;
+    marqueeEl.style.left = `${r.x}px`;
+    marqueeEl.style.top = `${r.y}px`;
+    marqueeEl.style.width = `${r.w}px`;
+    marqueeEl.style.height = `${r.h}px`;
+  }
+
+  function hideMarquee() {
+    if (marqueeEl) marqueeEl.hidden = true;
+  }
+
   stage.addEventListener('pointerdown', (e) => {
-    if (e.button === 1 || (e.button === 0 && e.target === stage)) {
+    const onEmpty =
+      e.target === stage ||
+      e.target === root.querySelector('.bd-grid') ||
+      e.target === marqueeEl;
+    if (e.button === 1) {
       panning = { x: e.clientX, y: e.clientY };
       stage.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button === 0 && onEmpty) {
+      // Marquee select (Shift keeps prior selection)
+      stage.focus();
+      marquee = {
+        x0: e.clientX,
+        y0: e.clientY,
+        additive: !!e.shiftKey,
+      };
+      if (!e.shiftKey) selection = clearSelection();
+      updateMarqueeVisual(e.clientX, e.clientY, e.clientX, e.clientY);
+      stage.setPointerCapture(e.pointerId);
+      paintSelectionOnly();
     }
   });
+
   stage.addEventListener('pointermove', (e) => {
-    if (drag) {
+    if (resize) {
+      const dx = (e.clientX - resize.ox) / cam.scale;
+      const dy = (e.clientY - resize.oy) / cam.scale;
+      const g = graph();
+      const it = g.items[resize.id];
+      if (!it) return;
+      const free = resize.free || e.ctrlKey || e.metaKey;
+      const size = clampResize(it, resize.ow + dx, resize.oh + dy, { freeResize: free });
+      const el = layer.querySelector(`.bd-card[data-id="${resize.id}"]`);
+      if (el) {
+        el.style.width = `${size.w}px`;
+        el.style.height = `${size.h}px`;
+        el.style.minHeight = `${size.h}px`;
+      }
+      resize._preview = size;
+      return;
+    }
+    if (drag && drag.mode === 'move') {
       const dx = (e.clientX - drag.ox) / cam.scale;
       const dy = (e.clientY - drag.oy) / cam.scale;
-      apiRef.exec(
-        'board.updateItem',
-        {
-          id: drag.id,
-          patch: { x: Math.round(drag.x + dx), y: Math.round(drag.y + dy) },
-        },
-        { mergeKey: `bd:${drag.id}:pos` }
-      );
-      render();
+      for (const id of drag.ids) {
+        const o = drag.origins.get(id);
+        if (!o) continue;
+        const el = layer.querySelector(`.bd-card[data-id="${id}"]`);
+        if (el) {
+          el.style.left = `${Math.round(o.x + dx)}px`;
+          el.style.top = `${Math.round(o.y + dy)}px`;
+        }
+      }
+      drag._dx = dx;
+      drag._dy = dy;
+      return;
+    }
+    if (marquee) {
+      updateMarqueeVisual(marquee.x0, marquee.y0, e.clientX, e.clientY);
+      const w0 = clientToWorld(marquee.x0, marquee.y0);
+      const w1 = clientToWorld(e.clientX, e.clientY);
+      const worldRect = normalizeRect(w0.x, w0.y, w1.x, w1.y);
+      const hit = selectInRect(selectableItems(), worldRect);
+      selection = marquee.additive
+        ? new Set([...selection, ...hit])
+        : hit;
+      paintSelectionOnly();
       return;
     }
     if (!panning) return;
@@ -544,10 +681,50 @@ export function mountBoardView(root, api) {
     panning = { x: e.clientX, y: e.clientY };
     render();
   });
-  stage.addEventListener('pointerup', () => {
-    drag = null;
+
+  stage.addEventListener('pointerup', (e) => {
+    if (resize) {
+      const size = resize._preview;
+      if (size) {
+        apiRef.exec(
+          'board.updateItem',
+          { id: resize.id, patch: { w: size.w, h: size.h } },
+          { label: 'Resize card' }
+        );
+      }
+      resize = null;
+      render();
+    } else if (drag && drag.mode === 'move') {
+      const dx = drag._dx || 0;
+      const dy = drag._dy || 0;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        const updates = [];
+        for (const id of drag.ids) {
+          const o = drag.origins.get(id);
+          if (!o) continue;
+          updates.push({
+            id,
+            patch: { x: Math.round(o.x + dx), y: Math.round(o.y + dy) },
+          });
+        }
+        if (updates.length) {
+          apiRef.exec(
+            'board.updateItems',
+            { updates, label: updates.length > 1 ? 'Move cards' : 'Move card' },
+            { label: updates.length > 1 ? 'Move cards' : 'Move card' }
+          );
+        }
+      }
+      drag = null;
+      render();
+    } else if (marquee) {
+      hideMarquee();
+      marquee = null;
+      paintSelectionOnly();
+    }
     panning = null;
   });
+
   stage.addEventListener(
     'wheel',
     (e) => {
@@ -560,6 +737,7 @@ export function mountBoardView(root, api) {
     },
     { passive: false }
   );
+
   stage.addEventListener('dblclick', (e) => {
     if (e.target !== stage && e.target !== root.querySelector('.bd-grid')) return;
     const rect = stage.getBoundingClientRect();
@@ -573,7 +751,32 @@ export function mountBoardView(root, api) {
       y: Math.round(wy),
     });
     apiRef.exec('board.addItem', { boardId, item }, { label: 'Add note' });
+    selection = selectOnly(selection, item.id);
     render();
+  });
+
+  stage.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea, select')) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      selection = selectAll(selectableItems().map((it) => it.id));
+      paintSelectionOnly();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      selection = clearSelection();
+      paintSelectionOnly();
+      return;
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) {
+      e.preventDefault();
+      const ids = [...selection];
+      apiRef.exec('board.removeItems', { ids }, { label: ids.length > 1 ? 'Delete cards' : 'Delete card' });
+      selection = clearSelection();
+      render();
+    }
   });
 
   function escapeHtml(s) {
@@ -592,7 +795,13 @@ export function mountBoardView(root, api) {
     delete root.__platenBoard;
   }
 
-  const controller = { render, destroy, setApi };
+  const controller = {
+    render,
+    destroy,
+    setApi,
+    /** Test / radial hooks */
+    getSelection: () => [...selection],
+  };
   root.__platenBoard = controller;
   return controller;
 }

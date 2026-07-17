@@ -355,6 +355,15 @@ export const registry = {
       });
     },
   },
+  'board.updateItems': {
+    label: 'Move / resize cards',
+    apply(project, payload) {
+      return board.boardUpdateItems(project, payload);
+    },
+    invert(project, payload) {
+      return board.boardUpdateItems(project, { updates: payload.beforeUpdates || [] });
+    },
+  },
   'board.removeItem': {
     label: 'Delete board item',
     apply(project, payload) {
@@ -365,6 +374,20 @@ export const registry = {
         boardId: payload.item.boardId,
         item: payload.item,
       });
+    },
+  },
+  'board.removeItems': {
+    label: 'Delete cards',
+    apply(project, payload) {
+      return board.boardRemoveItems(project, payload);
+    },
+    invert(project, payload) {
+      // Restore each removed item
+      let p = project;
+      for (const item of payload.items || []) {
+        p = board.boardAddItem(p, { boardId: item.boardId, item });
+      }
+      return p;
     },
   },
   'board.syncScenes': {
@@ -704,11 +727,38 @@ export function prepare(type, project, payload = {}) {
         mergeKey: payload.mergeKey || `bd:${payload.id}`,
       };
     }
+    case 'board.updateItems': {
+      const beforeUpdates = [];
+      for (const u of payload.updates || []) {
+        const it = project.boards?.items?.[u.id];
+        if (!it) continue;
+        const beforePatch = {};
+        for (const k of Object.keys(u.patch || {})) beforePatch[k] = it[k];
+        beforeUpdates.push({ id: u.id, patch: beforePatch });
+      }
+      if (!beforeUpdates.length) return { error: 'No board items to update' };
+      return {
+        inversePayload: { beforeUpdates },
+        label: payload.label || def.label,
+      };
+    }
     case 'board.removeItem': {
       const it = project.boards?.items?.[payload.id];
       if (!it) return { error: 'Board item not found' };
       return {
         inversePayload: { item: JSON.parse(JSON.stringify(it)) },
+        label: def.label,
+      };
+    }
+    case 'board.removeItems': {
+      const items = [];
+      for (const id of payload.ids || []) {
+        const it = project.boards?.items?.[id];
+        if (it) items.push(JSON.parse(JSON.stringify(it)));
+      }
+      if (!items.length) return { error: 'No board items to remove' };
+      return {
+        inversePayload: { items },
         label: def.label,
       };
     }
