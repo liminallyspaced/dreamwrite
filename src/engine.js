@@ -156,9 +156,13 @@ function toFountain(project) {
         lines.push(text);
         lines.push('');
         break;
-      case 'character':
-        lines.push(text.toUpperCase());
+      case 'character': {
+        // Fountain dual: second column marked with caret after the name
+        let cue = text.toUpperCase().replace(/\s*\^\s*$/, '').trim();
+        if (block.dual) cue = `${cue}^`;
+        lines.push(cue);
         break;
+      }
       case 'parenthetical': {
         let p = text.trim();
         if (!p.startsWith('(')) p = `(${p}`;
@@ -215,7 +219,8 @@ function looksLikeTransition(line) {
 }
 
 function looksLikeCharacter(line) {
-  const t = line.trim();
+  // Allow trailing dual caret for Fountain dual dialogue
+  const t = line.trim().replace(/\s*\^\s*$/, '');
   if (!t || t.length > 40) return false;
   if (t !== t.toUpperCase()) return false;
   if (looksLikeScene(t) || looksLikeTransition(t)) return false;
@@ -319,7 +324,16 @@ function fromFountain(text, baseTitle = 'Imported Script') {
     }
 
     if (looksLikeCharacter(trimmed) && !trimmed.startsWith('!')) {
-      blocks.push(createBlock('character', trimmed.toUpperCase()));
+      let cue = trimmed.toUpperCase();
+      let dual = false;
+      // Fountain dual dialogue: CHARACTER^ or CHARACTER ^
+      if (/\^\s*$/.test(cue) || /\s+\^\s*$/.test(cue)) {
+        dual = true;
+        cue = cue.replace(/\s*\^\s*$/, '').trim();
+      }
+      const ch = createBlock('character', cue);
+      if (dual) ch.dual = true;
+      blocks.push(ch);
       lastType = 'character';
       i += 1;
       // absorb following parentheticals / dialogue
@@ -888,6 +902,24 @@ function toPdfHtml(project) {
           if (row.isBlank || row.type === 'blank') {
             return `<div class="line blank">&nbsp;</div>`;
           }
+          if (row.type === 'dual-row') {
+            const lc = escapeHtml(row.left?.character || '');
+            const lt = escapeHtml(row.left?.text || '');
+            const rc = escapeHtml(row.right?.character || '');
+            const rt = escapeHtml(row.right?.text || '');
+            const leftInner = lc
+              ? `<div class="dual-char">${lc}</div>`
+              : `<div class="dual-dlg">${lt || '&nbsp;'}</div>`;
+            const rightInner = rc
+              ? `<div class="dual-char">${rc}</div>`
+              : `<div class="dual-dlg">${rt || '&nbsp;'}</div>`;
+            return `<div class="line el-dual-row"><div class="dual-col">${leftInner}</div><div class="dual-col">${rightInner}</div></div>`;
+          }
+          if (row.type === 'scene' && row.sceneNumber != null) {
+            const sn = escapeHtml(String(row.sceneNumber));
+            const text = escapeHtml(row.text || '') || '&nbsp;';
+            return `<div class="line el-scene has-sn"><span class="sn-left">${sn}</span><span class="sn-body">${text}</span><span class="sn-right">${sn}</span></div>`;
+          }
           const cls = `line el-${escapeHtml(row.type)}`;
           const text = escapeHtml(row.text || '') || '&nbsp;';
           return `<div class="${cls}">${text}</div>`;
@@ -977,6 +1009,25 @@ ${num}
   .el-dialogue { margin-left: 1.0in; max-width: 3.5in; }
   .el-transition { text-align: right; text-transform: uppercase; }
   .el-action, .el-general { max-width: 6in; }
+  .el-dual-row {
+    display: flex;
+    flex-direction: row;
+    gap: 0.25in;
+    height: 12pt;
+    white-space: pre;
+  }
+  .dual-col { width: 2.9in; overflow: hidden; }
+  .dual-char { text-transform: uppercase; text-align: center; }
+  .dual-dlg { max-width: 2.9in; }
+  .el-scene.has-sn {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.25in;
+    white-space: pre;
+  }
+  .sn-left, .sn-right { width: 0.4in; flex: 0 0 auto; }
+  .sn-right { text-align: right; }
+  .sn-body { flex: 1; text-align: left; }
 </style>
 </head>
 <body>

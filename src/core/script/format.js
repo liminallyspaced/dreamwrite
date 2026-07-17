@@ -65,10 +65,33 @@ export const DEFAULT_FORMAT = {
    * Never written into the document model.
    */
   autoContdOnPageBreak: true,
+  /**
+   * Same speaker returns after action/shot/etc. — inject (CONT'D) at paginate time
+   * (never written into the document model).
+   */
+  autoContdOnReturn: true,
   moreText: '(MORE)',
   contdText: "(CONT'D)",
   /** Screenwriter style: NAME (V.O.; CONT'D). FD uses NAME (V.O.) (CONT'D). */
   contdStyle: 'paren', // 'paren' | 'semicolon'
+
+  /**
+   * Scene numbers on slug rows — left | right | both | hidden.
+   * Numbers are sequential over scene headings in script order.
+   */
+  sceneNumbers: {
+    mode: 'both', // 'left' | 'right' | 'both' | 'hidden'
+  },
+
+  /**
+   * Dual dialogue geometry (half-columns). Widths in characters at 10 cpi.
+   * Do not invent beyond this without updating pagination.md.
+   */
+  dual: {
+    /** Each dual dialogue column ≈ half of 35-char dialogue. */
+    dialogueWidthChars: 17,
+    characterWidthChars: 18,
+  },
 };
 
 /**

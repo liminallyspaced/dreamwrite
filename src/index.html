@@ -202,7 +202,7 @@
         </section>
 
         <section class="view" id="view-title">
-          <div class="form-view">
+          <div class="form-view title-split">
             <div class="form-card">
               <h2>Title Page</h2>
               <div class="form-row"><label>Title</label><input id="tpTitle" /></div>
@@ -210,6 +210,18 @@
               <div class="form-row"><label>Based on</label><input id="tpBased" /></div>
               <div class="form-row"><label>Draft date</label><input id="tpDate" /></div>
               <div class="form-row"><label>Contact</label><textarea id="tpContact" rows="4"></textarea></div>
+            </div>
+            <div class="title-preview-card" aria-label="Title page preview">
+              <div class="tp-preview-sheet">
+                <div class="tp-preview-title" id="tpPrevTitle">Untitled</div>
+                <div class="tp-preview-by">Written by</div>
+                <div class="tp-preview-author" id="tpPrevAuthor"></div>
+                <div class="tp-preview-based" id="tpPrevBased" hidden></div>
+                <div class="tp-preview-foot">
+                  <div id="tpPrevDate"></div>
+                  <div class="tp-preview-contact" id="tpPrevContact"></div>
+                </div>
+              </div>
             </div>
           </div>
         </section>

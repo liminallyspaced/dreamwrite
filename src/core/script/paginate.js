@@ -16,6 +16,10 @@ import { wrap, wrapParenthetical } from './wrap.js';
  *   isContinuation?: boolean,
  *   isBlank?: boolean,
  *   isSynthetic?: boolean,
+ *   sceneNumber?: number | null,
+ *   dual?: boolean,
+ *   left?: { character?: string, text?: string, blockId?: string | null },
+ *   right?: { character?: string, text?: string, blockId?: string | null },
  * }} Row
  */
 
@@ -88,12 +92,15 @@ export function paginate(blocks, formatOverride = {}) {
 
     // Character cue is atomic with first dialogue/parenthetical line
     if (item.type === 'character') {
-      placeCharacterGroup(item, next, items, i);
-      // If next was dialogue/parenthetical we may have consumed it
-      if (next && (next.type === 'dialogue' || next.type === 'parenthetical')) {
-        // parenthetical may be followed by dialogue — character group only
-        // consumes the immediate speech start; remaining handled in loop.
+      if (item._consumed) continue;
+      // Dual partner speech is placed with its left partner
+      if (item.dual) continue;
+      const dualPartner = findDualPartner(items, i);
+      if (dualPartner) {
+        placeDualGroup(item, dualPartner, items, i);
+        continue;
       }
+      placeCharacterGroup(item, next, items, i);
       continue;
     }
 
@@ -154,6 +161,7 @@ export function paginate(blocks, formatOverride = {}) {
       type: 'character',
       text: cueLine,
       isContinuation: false,
+      dual: !!item.dual,
     });
 
     if (!speech) return;
@@ -225,6 +233,87 @@ export function paginate(blocks, formatOverride = {}) {
         type: item.type,
         text,
         isContinuation: false,
+        sceneNumber: item.type === 'scene' ? item.sceneNumber : undefined,
+      });
+    }
+  }
+
+  /**
+   * Dual dialogue: left character speech + right (dual:true) partner, side-by-side.
+   * Pair breaks as a unit (no page split inside the dual block when avoidable).
+   * @param {Expanded} leftCue
+   * @param {{ cue: Expanded, cueIndex: number }} partner
+   * @param {Expanded[]} all
+   * @param {number} leftIndex
+   */
+  function placeDualGroup(leftCue, partner, all, leftIndex) {
+    const leftSpeech = collectSpeech(all, leftIndex);
+    const rightSpeech = collectSpeech(all, partner.cueIndex);
+    // Mark consumed
+    markSpeechConsumed(all, leftIndex);
+    markSpeechConsumed(all, partner.cueIndex);
+    partner.cue._consumed = true;
+
+    const leftChar = leftCue.lines[0] || leftCue.rawText || '';
+    const rightChar = partner.cue.lines[0] || partner.cue.rawText || '';
+    const leftLines = speechLines(leftSpeech);
+    const rightLines = speechLines(rightSpeech);
+    const maxBody = Math.max(leftLines.length, rightLines.length, 1);
+    const blanks = leftCue.blanksBefore || 0;
+    // cue row + body rows
+    const need = blanks + 1 + maxBody;
+    if (need > spaceLeft() && used > 0) flush();
+    pushBlanks(Math.min(blanks, Math.max(0, spaceLeft() - (1 + maxBody))), leftCue.blockId);
+    if (1 + maxBody > spaceLeft() && used > 0) flush();
+
+    // Character cues row
+    pushRow({
+      blockId: leftCue.blockId,
+      type: 'dual-row',
+      text: '',
+      isSynthetic: false,
+      left: { character: leftChar, text: '', blockId: leftCue.blockId },
+      right: { character: rightChar, text: '', blockId: partner.cue.blockId },
+      dual: true,
+    });
+
+    for (let li = 0; li < maxBody; li++) {
+      if (spaceLeft() < 1) {
+        // Pair should not split mid-dual if possible — flush and re-emit cues (CONT'D style)
+        flush();
+        pushRow({
+          blockId: leftCue.blockId,
+          type: 'dual-row',
+          text: '',
+          left: {
+            character: formatContdCue(leftChar, format),
+            text: '',
+            blockId: leftCue.blockId,
+          },
+          right: {
+            character: formatContdCue(rightChar, format),
+            text: '',
+            blockId: partner.cue.blockId,
+          },
+          dual: true,
+          isContinuation: true,
+        });
+      }
+      pushRow({
+        blockId: leftCue.blockId,
+        type: 'dual-row',
+        text: '',
+        left: {
+          character: '',
+          text: leftLines[li] || '',
+          blockId: leftSpeech.dialogueId || leftCue.blockId,
+        },
+        right: {
+          character: '',
+          text: rightLines[li] || '',
+          blockId: rightSpeech.dialogueId || partner.cue.blockId,
+        },
+        dual: true,
       });
     }
   }
@@ -490,6 +579,8 @@ function mergeFormat(base, over) {
     elements: { ...base.elements, ...(over.elements || {}) },
     breaks: { ...base.breaks, ...(over.breaks || {}) },
     pageNumber: { ...base.pageNumber, ...(over.pageNumber || {}) },
+    sceneNumbers: { ...base.sceneNumbers, ...(over.sceneNumbers || {}) },
+    dual: { ...base.dual, ...(over.dual || {}) },
   };
 }
 
@@ -500,12 +591,14 @@ function mergeFormat(base, over) {
  *   lines: string[],
  *   blanksBefore: number,
  *   rawText: string,
+ *   dual?: boolean,
+ *   sceneNumber?: number | null,
  *   _consumed?: boolean,
  * }} Expanded
  */
 
 /**
- * @param {Array<{ id?: string, type: string, text?: string }>} blocks
+ * @param {Array<{ id?: string, type: string, text?: string, dual?: boolean }>} blocks
  * @param {typeof DEFAULT_FORMAT} format
  * @returns {Expanded[]}
  */
@@ -513,30 +606,62 @@ function expandBlocks(blocks, format) {
   /** @type {Expanded[]} */
   const out = [];
   let prevType = null;
+  let lastSpeaker = null;
+  let interrupted = false;
+  let sceneIndex = 0;
+  const sceneMode = format.sceneNumbers?.mode || 'both';
+  const autoReturn = format.autoContdOnReturn !== false;
 
   for (const b of blocks) {
     const type = b.type || 'action';
     if (type === 'note') {
-      // Still track? Skip entirely from pagination stream
       continue;
     }
-    const raw = b.text || '';
+    let raw = b.text || '';
+    // Strip caret from dual fountain leftovers if any
+    if (type === 'character') {
+      raw = raw.replace(/\s*\^\s*$/, '').trim();
+    }
+
+    // Same-speaker CONT'D (paginate-time only)
+    let displayRaw = raw;
+    if (type === 'character') {
+      const name = baseName(raw);
+      if (autoReturn && lastSpeaker && name === lastSpeaker && interrupted && name) {
+        displayRaw = formatContdCue(raw, format);
+      }
+      lastSpeaker = name;
+      interrupted = false;
+    } else if (type === 'dialogue' || type === 'parenthetical') {
+      // still same speech
+    } else if (type === 'scene') {
+      lastSpeaker = null;
+      interrupted = false;
+    } else if (
+      type === 'action' ||
+      type === 'shot' ||
+      type === 'general' ||
+      type === 'transition'
+    ) {
+      if (lastSpeaker) interrupted = true;
+    }
+
+    let sceneNumber = null;
+    if (type === 'scene') {
+      sceneIndex += 1;
+      if (sceneMode !== 'hidden') sceneNumber = sceneIndex;
+    }
+
     const cols = widthChars(type, format);
     let lines;
     if (type === 'parenthetical') {
-      lines = wrapParenthetical(raw, cols);
+      lines = wrapParenthetical(displayRaw, cols);
     } else if (type === 'character' || type === 'scene' || type === 'shot' || type === 'transition') {
-      // Single-line elements typically; still wrap if needed
-      const t =
-        type === 'character' || type === 'scene' || type === 'shot' || type === 'transition'
-          ? raw
-          : raw;
-      lines = wrap(t, cols);
+      lines = wrap(displayRaw, cols);
     } else {
-      lines = wrap(raw, cols);
+      lines = wrap(displayRaw, cols);
     }
 
-    // Empty action still occupies a line if it's a real empty block? Prefer 0 lines for empty action
     if (!raw && (type === 'action' || type === 'general' || type === 'dialogue')) {
       lines = [];
     }
@@ -552,10 +677,89 @@ function expandBlocks(blocks, format) {
       lines,
       blanksBefore: blanks,
       rawText: raw,
+      dual: !!b.dual,
+      sceneNumber,
     });
     prevType = type;
   }
   return out;
+}
+
+function baseName(text) {
+  return String(text || '')
+    .replace(/\s*\^?\s*$/, '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Find dual partner cue after left character's speech unit.
+ * @param {Expanded[]} items
+ * @param {number} leftIndex
+ */
+function findDualPartner(items, leftIndex) {
+  let j = leftIndex + 1;
+  // skip speech of left
+  while (j < items.length && (items[j].type === 'parenthetical' || items[j].type === 'dialogue')) {
+    j += 1;
+  }
+  if (j < items.length && items[j].type === 'character' && items[j].dual) {
+    return { cue: items[j], cueIndex: j };
+  }
+  return null;
+}
+
+/**
+ * @param {Expanded[]} all
+ * @param {number} cueIndex
+ */
+function collectSpeech(all, cueIndex) {
+  /** @type {Expanded[]} */
+  const parts = [];
+  let j = cueIndex + 1;
+  while (j < all.length && (all[j].type === 'parenthetical' || all[j].type === 'dialogue')) {
+    parts.push(all[j]);
+    j += 1;
+  }
+  let dialogueId = null;
+  for (const p of parts) {
+    if (p.type === 'dialogue') dialogueId = p.blockId;
+  }
+  return { parts, dialogueId };
+}
+
+/**
+ * @param {Expanded[]} all
+ * @param {number} cueIndex
+ */
+function markSpeechConsumed(all, cueIndex) {
+  let j = cueIndex + 1;
+  while (j < all.length && (all[j].type === 'parenthetical' || all[j].type === 'dialogue')) {
+    all[j]._consumed = true;
+    j += 1;
+  }
+}
+
+/**
+ * Flatten speech parts to display lines (paren + dialogue).
+ * @param {{ parts: Expanded[] }} speech
+ */
+function speechLines(speech) {
+  /** @type {string[]} */
+  const lines = [];
+  for (const p of speech.parts || []) {
+    for (const line of p.lines || []) {
+      if (p.type === 'parenthetical') {
+        const t = line.trim();
+        lines.push(t.startsWith('(') ? t : `(${t.replace(/^\(|\)$/g, '')})`);
+      } else {
+        lines.push(line);
+      }
+    }
+  }
+  return lines;
 }
 
 /**

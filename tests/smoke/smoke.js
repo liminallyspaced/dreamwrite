@@ -150,6 +150,24 @@ async function main() {
     );
     check('sample script rendered blocks', blockCount > 0, `${blockCount} blocks`);
 
+    // Phase 7: SmartType pure module is reachable via typing scene (no crash)
+    const smarttype = await cdp.evaluate(`(() => {
+      try {
+        // Dual insert no longer plants marker text
+        const dualBtn = document.querySelector('[data-insert-block="dual"]');
+        return {
+          dualBtn: !!dualBtn,
+          hasFakeDual: Array.from(document.querySelectorAll('.block')).some(
+            (el) => (el.textContent || '').includes('== DUAL DIALOGUE ==')
+          ),
+        };
+      } catch (e) {
+        return { error: String(e) };
+      }
+    })()`);
+    check('dual structure control present', !!smarttype.dualBtn, JSON.stringify(smarttype));
+    check('no fake dual marker on sample', !smarttype.hasFakeDual, JSON.stringify(smarttype));
+
     // --- THE POINT: exercise the extracted block-dom code ----------------------
     // readBlockText / setBlockDomText / placeCaretEnd only run once you type.
     // Prefer an action block so we don't fight scene/character normalisation.

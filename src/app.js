@@ -32,6 +32,12 @@ import { searchProject } from './core/project/search.js';
 import { createStore } from './core/store/index.js';
 import { mountTimelineView } from './views/timeline/timeline-view.js';
 import { mountBoardView } from './views/board/board-view.js';
+import {
+  smarttypeSuggestions,
+  sceneTabAdvance,
+  applySceneSuggestion,
+  sceneSlugPhase,
+} from './core/script/smarttype.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -1103,12 +1109,29 @@ import { mountBoardView } from './views/board/board-view.js';
     const row = document.createElement('div');
     row.className = `block-row type-${block.type}`;
     row.dataset.id = block.id;
+    if (block.dual) {
+      row.classList.add('dual-partner');
+      row.dataset.dual = '1';
+    }
+    if (block.type === 'scene') {
+      const n = sceneNumberForBlock(block.id);
+      if (n) {
+        row.dataset.sceneNumber = String(n);
+        row.classList.add('has-scene-num');
+      }
+    }
 
     const gutter = document.createElement('div');
     gutter.className = 'block-gutter';
     gutter.contentEditable = 'false';
     gutter.setAttribute('aria-hidden', 'true');
-    gutter.textContent = E.ELEMENT_LABELS[block.type] || block.type;
+    if (block.type === 'scene' && row.dataset.sceneNumber) {
+      gutter.textContent = row.dataset.sceneNumber;
+    } else if (block.dual) {
+      gutter.textContent = 'Dual';
+    } else {
+      gutter.textContent = E.ELEMENT_LABELS[block.type] || block.type;
+    }
 
     const text = document.createElement('div');
     text.className = `block ${block.type}`;
@@ -1423,7 +1446,9 @@ import { mountBoardView } from './views/board/board-view.js';
     } else if (kind === 'act-end') {
       block = E.createBlock('general', 'END OF ACT');
     } else if (kind === 'dual') {
-      block = E.createBlock('general', '== DUAL DIALOGUE ==');
+      // Real dual partner cue (Fountain dual) — not a marker line
+      block = E.createBlock('character', '');
+      block.dual = true;
     } else {
       return;
     }
@@ -1494,9 +1519,10 @@ import { mountBoardView } from './views/board/board-view.js';
     // Undoable typing — merges into one stack entry per block within 1s
     exec('blocks.setText', { id, text }, { mergeKey: `block:${id}` });
     if (b.type === 'scene') renderScenes();
-    if (b.type === 'character') {
-      // b may be stale; use store block for autocomplete query
+    if (b.type === 'character' || b.type === 'scene' || b.type === 'transition') {
       maybeShowAc(textEl, getBlock(id));
+    } else {
+      hideAc();
     }
     refreshStats();
     // Paginate off the hot path; reflow pages without destroying the caret
@@ -1536,8 +1562,23 @@ import { mountBoardView } from './views/board/board-view.js';
 
     if (e.key === 'Tab') {
       e.preventDefault();
-      // sync text before type change
       b.text = readBlockText(textEl);
+      // Scene SmartType Tab: INT. → location → time (Final Draft)
+      if (b.type === 'scene' && !e.shiftKey) {
+        const adv = sceneTabAdvance(b.text);
+        if (adv.handled) {
+          exec('blocks.setText', { id, text: adv.text }, { mergeKey: `block:${id}` });
+          setBlockDomText(textEl, adv.text);
+          placeCaretEnd(textEl);
+          maybeShowAc(textEl, getBlock(id));
+          return;
+        }
+      }
+      // Accept AC first when open
+      if (els.ac.classList.contains('show') && state.acItems[state.acIndex]) {
+        applyAc(state.acItems[state.acIndex], textEl, b);
+        return;
+      }
       cycleType(id, e.shiftKey);
       return;
     }
@@ -1957,6 +1998,29 @@ import { mountBoardView } from './views/board/board-view.js';
     $('#tpBased').value = tp.basedOn || '';
     $('#tpDate').value = tp.draftDate || '';
     $('#tpContact').value = tp.contact || '';
+    paintTitlePreview();
+  }
+
+  function paintTitlePreview() {
+    const tp = state.project.titlePage || {};
+    const title = $('#tpPrevTitle');
+    const author = $('#tpPrevAuthor');
+    const based = $('#tpPrevBased');
+    const date = $('#tpPrevDate');
+    const contact = $('#tpPrevContact');
+    if (title) title.textContent = (tp.title || 'Untitled').toUpperCase();
+    if (author) author.textContent = tp.writtenBy || '';
+    if (based) {
+      if (tp.basedOn) {
+        based.hidden = false;
+        based.textContent = `Based on ${tp.basedOn}`;
+      } else {
+        based.hidden = true;
+        based.textContent = '';
+      }
+    }
+    if (date) date.textContent = tp.draftDate || '';
+    if (contact) contact.textContent = tp.contact || '';
   }
 
   function syncTitleFromForm() {
@@ -1974,6 +2038,7 @@ import { mountBoardView } from './views/board/board-view.js';
       },
       { mergeKey: 'meta:title', label: 'Title page' }
     );
+    paintTitlePreview();
     updateChrome();
   }
 
@@ -2331,28 +2396,31 @@ import { mountBoardView } from './views/board/board-view.js';
     alert(`Replaced ${count} occurrence(s).`);
   }
 
-  /* ---------- autocomplete ---------- */
+  /* ---------- autocomplete (SmartType) ---------- */
 
   function maybeShowAc(div, block) {
-    if (block.type !== 'character') {
+    if (!block || !div) {
       hideAc();
       return;
     }
-    const q = (block.text || '').trim().toUpperCase();
-    const names = new Set();
-    (state.project.characters || []).forEach((c) => c.name && names.add(c.name.toUpperCase()));
-    state.project.blocks.forEach((b) => {
-      if (b.type === 'character' && b.text) {
-        names.add(b.text.replace(/\s*\(.*\)\s*$/, '').trim().toUpperCase());
-      }
-    });
-    const items = Array.from(names)
-      .filter((n) => n && n.includes(q) && n !== q)
-      .sort()
-      .slice(0, 8);
-    if (!items.length || !q) {
+    const type = block.type;
+    if (type !== 'character' && type !== 'scene' && type !== 'transition') {
       hideAc();
       return;
+    }
+    const q = block.text || '';
+    const items = smarttypeSuggestions(type, q, {
+      blocks: state.project.blocks || [],
+      characters: state.project.characters || [],
+      limit: 8,
+    });
+    // Scene: show prefixes even when empty; character/transition need query or list
+    if (!items.length) {
+      hideAc();
+      return;
+    }
+    if (type === 'character' && !(q || '').trim()) {
+      // Still show top names when empty cue
     }
     state.acItems = items;
     state.acIndex = 0;
@@ -2377,17 +2445,36 @@ import { mountBoardView } from './views/board/board-view.js';
     });
   }
 
-  function applyAc(name, textEl, block) {
-    if (!block || !textEl) return;
-    exec('blocks.setText', { id: block.id, text: name }, { mergeKey: `block:${block.id}` });
-    setBlockDomText(textEl, name);
+  function applyAc(suggestion, textEl, block) {
+    if (!block || !textEl || !suggestion) return;
+    let next = suggestion;
+    if (block.type === 'scene') {
+      next = applySceneSuggestion(block.text || readBlockText(textEl), suggestion);
+    }
+    exec('blocks.setText', { id: block.id, text: next }, { mergeKey: `block:${block.id}` });
+    setBlockDomText(textEl, next);
     placeCaretEnd(textEl);
     hideAc();
+    if (block.type === 'scene') {
+      renderScenes();
+      // keep offering next phase
+      maybeShowAc(textEl, getBlock(block.id));
+    }
   }
 
   function hideAc() {
     els.ac.classList.remove('show');
     state.acItems = [];
+  }
+
+  function sceneNumberForBlock(blockId) {
+    let n = 0;
+    for (const b of state.project.blocks || []) {
+      if (b.type !== 'scene') continue;
+      n += 1;
+      if (b.id === blockId) return n;
+    }
+    return 0;
   }
 
   /* ---------- global keys ---------- */
