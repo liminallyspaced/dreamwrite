@@ -77,8 +77,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
       "shortcutName": "DreamWrite",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",

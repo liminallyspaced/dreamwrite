@@ -105,8 +105,23 @@ From **[Releases](https://github.com/liminallyspaced/dreamwrite/releases/latest)
 
 | File | Use |
 |:-----|:----|
-| **`DreamWrite-Setup-*.exe`** | Full installer (Start Menu + Desktop shortcuts) |
-| **`DreamWrite-Portable-*.exe`** | No install — run anywhere |
+| **`DreamWrite-Portable-*.exe`** | Preferred: install via `npm run deploy:desktop` |
+| **`DreamWrite-Setup-*.exe`** | Optional NSIS (does **not** auto-spam Desktop shortcuts) |
+
+### Desktop update (Windows) — one launcher only
+
+```bash
+npm run deploy:desktop        # pack + install + scrub Desktop
+npm run deploy:desktop:quick  # reinstall from existing dist/
+```
+
+| What | Where |
+|:-----|:------|
+| **App binary** | `%LOCALAPPDATA%\Programs\DreamWrite\DreamWrite.exe` |
+| **Desktop** | **Exactly one** `DreamWrite.lnk` (nothing else) |
+| **Old builds** | `%LOCALAPPDATA%\DreamWrite\archive\` (never Desktop) |
+
+Deploy **removes** loose Desktop `DreamWrite*.exe`, `*-FIXED.lnk`, unpack folders, and old archive piles. Do not keep a second git clone on the Desktop — use `SYNTH-PROJECTS\ScriptDesk` only.
 
 > SmartScreen may warn on unsigned builds → **More info** → **Run anyway** if you trust the source.
 
@@ -142,9 +157,9 @@ npm run deploy:desktop   # pack + clean Desktop (archive older builds)
 
 | Command | Output |
 |:--------|:-------|
-| `npm run pack:win` | `DreamWrite-Setup-<ver>.exe` + `DreamWrite-Portable-<ver>.exe` |
+| `npm run pack:win` | `DreamWrite-Setup-<ver>.exe` + `DreamWrite-Portable-<ver>.exe` in `dist/` |
 | `npm run pack:mac` | DMG + ZIP (**must run on macOS**) |
-| `npm run deploy:desktop` | Refreshes Desktop; archives old DreamWrite\* copies |
+| `npm run deploy:desktop` | **Single** Desktop shortcut → LocalAppData install; archives off-Desktop |
 
 Tag a release to trigger CI builds:
 

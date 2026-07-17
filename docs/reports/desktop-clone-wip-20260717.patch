@@ -1,0 +1,264 @@
+diff --git a/package.json b/package.json
+index 97999be..a8b6f19 100644
+--- a/package.json
++++ b/package.json
+@@ -40,6 +40,7 @@
+     "files": [
+       "main.js",
+       "preload.js",
++      "lib/**/*",
+       "src/**/*",
+       "assets/**/*",
+       "package.json"
+@@ -140,3 +141,4 @@
+     "ws": "^8.21.1"
+   }
+ }
++
+diff --git a/src/app.js b/src/app.js
+index 7bd5ff3..43dec67 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -2119,6 +2119,7 @@ import {
+     const root = $('#timelineRoot');
+     if (!root) return;
+     if (!timelineApi) timelineApi = mountTimelineView(root, surfaceApi());
++    else timelineApi.setApi?.(surfaceApi());
+     timelineApi.render();
+   }
+ 
+diff --git a/src/core/store/mutations/timeline.js b/src/core/store/mutations/timeline.js
+index 1bda488..c1bdcbc 100644
+--- a/src/core/store/mutations/timeline.js
++++ b/src/core/store/mutations/timeline.js
+@@ -20,12 +20,36 @@ export function setTimeline(project, { timeline }) {
+ export function addTimelineItem(project, { item }) {
+   const p = ensureProjectTimeline(project);
+   const timeline = p.timeline;
+-  const next = createItem(item || {});
++  // Prefer caller-provided item as-is when already shaped (keeps id stable for select())
++  const next =
++    item?.id && (item.kind === 'span' || item.kind === 'instant') && Number.isFinite(item.t0)
++      ? {
++          ...item,
++          t0: Math.trunc(item.t0),
++          title: item.title || 'Untitled',
++          ...(item.kind === 'span'
++            ? {
++                t1: Number.isFinite(item.t1) ? Math.trunc(item.t1) : Math.trunc(item.t0) + 365,
++              }
++            : {}),
++        }
++      : createItem(item || {});
++  // Dedupe by id (double-click / double-fire)
++  const prev = timeline.items || [];
++  if (prev.some((it) => it.id === next.id)) {
++    return touch({
++      ...p,
++      timeline: {
++        ...timeline,
++        items: prev.map((it) => (it.id === next.id ? { ...it, ...next } : it)),
++      },
++    });
++  }
+   return touch({
+     ...p,
+     timeline: {
+       ...timeline,
+-      items: [...(timeline.items || []), next],
++      items: [...prev, next],
+     },
+   });
+ }
+diff --git a/src/core/timeline/model.js b/src/core/timeline/model.js
+index 5771789..04962f9 100644
+--- a/src/core/timeline/model.js
++++ b/src/core/timeline/model.js
+@@ -107,7 +107,37 @@ export function demoItems() {
+ }
+ 
+ export function ensureProjectTimeline(project) {
+-  if (project.timeline && project.timeline.calendar) return project;
++  const tl = project?.timeline;
++  if (tl && tl.calendar && Array.isArray(tl.items)) return project;
++  // Preserve any existing items if calendar was missing (partial save / old docs)
++  if (tl && Array.isArray(tl.items) && tl.items.length) {
++    let shell;
++    try {
++      shell = emptyTimeline({
++        id: tl.id,
++        name: tl.name,
++        calendar: tl.calendar,
++      });
++    } catch {
++      shell = emptyTimeline({ id: tl.id, name: tl.name });
++    }
++    return {
++      ...project,
++      timeline: {
++        ...shell,
++        ...tl,
++        calendar: shell.calendar,
++        calendarId: shell.calendarId,
++        items: tl.items,
++      },
++    };
++  }
++  if (tl && tl.calendar) {
++    return {
++      ...project,
++      timeline: { ...tl, items: Array.isArray(tl.items) ? tl.items : [] },
++    };
++  }
+   return {
+     ...project,
+     timeline: emptyTimeline(),
+diff --git a/src/engine.js b/src/engine.js
+index c340df1..40e6a63 100644
+--- a/src/engine.js
++++ b/src/engine.js
+@@ -118,6 +118,9 @@ function emptyProject(title = 'Untitled Screenplay') {
+       pageTarget: null,
+     },
+     history: [],
++    // Surfaces are lazy-filled by ensure* if missing; null keeps JSON small
++    timeline: null,
++    boards: null,
+   };
+ }
+ 
+diff --git a/src/styles.css b/src/styles.css
+index 777374b..0afc678 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -1624,6 +1624,14 @@ button[data-bd="arrow"].active,
+   padding: 24px;
+   z-index: 2;
+ }
++/* Author `display: flex` overrides UA [hidden] without this — empty overlay
++   stayed visible on top of real events/cards (timeline + board). */
++.tl-empty[hidden],
++.bd-empty[hidden],
++.tl-empty.is-hidden,
++.bd-empty.is-hidden {
++  display: none !important;
++}
+ .tl-empty p, .bd-empty p { margin: 4px 0; max-width: 320px; }
+ html.theme-light .tl-stage,
+ html.theme-light .bd-stage {
+diff --git a/src/views/board/board-view.js b/src/views/board/board-view.js
+index aeffe5e..8049287 100644
+--- a/src/views/board/board-view.js
++++ b/src/views/board/board-view.js
+@@ -172,7 +172,12 @@ export function mountBoardView(root, api) {
+       const it = g.items[id];
+       return it && it.type !== 'connector';
+     }).length;
+-    if (emptyEl) emptyEl.hidden = itemCount > 0;
++    if (emptyEl) {
++      // Same fix as timeline: author CSS `display:flex` must not beat [hidden]
++      emptyEl.hidden = itemCount > 0;
++      emptyEl.classList.toggle('is-hidden', itemCount > 0);
++      emptyEl.setAttribute('aria-hidden', itemCount > 0 ? 'true' : 'false');
++    }
+ 
+     // Breadcrumbs
+     const path = breadcrumbPath(g, boardId);
+diff --git a/src/views/timeline/timeline-view.js b/src/views/timeline/timeline-view.js
+index 69f321e..2893846 100644
+--- a/src/views/timeline/timeline-view.js
++++ b/src/views/timeline/timeline-view.js
+@@ -118,11 +118,19 @@ export function mountTimelineView(root, api) {
+     return project().timeline;
+   }
+ 
++  function setEmptyVisible(show) {
++    if (!emptyEl) return;
++    // Belt-and-suspenders: attribute + class (CSS must honor [hidden] over display:flex)
++    emptyEl.hidden = !show;
++    emptyEl.classList.toggle('is-hidden', !show);
++    emptyEl.setAttribute('aria-hidden', show ? 'false' : 'true');
++  }
++
+   function render() {
+     const tl = timeline();
+     const cal = tl.calendar;
+-    const items = tl.items || [];
+-    if (emptyEl) emptyEl.hidden = items.length > 0;
++    const items = Array.isArray(tl.items) ? tl.items : [];
++    setEmptyVisible(items.length === 0);
+     const rect = stage.getBoundingClientRect();
+     const w = Math.max(320, rect.width);
+     const h = Math.max(280, rect.height);
+@@ -344,7 +352,11 @@ export function mountTimelineView(root, api) {
+       title: 'New event',
+       color: '#333',
+     });
+-    apiRef.exec('timeline.addItem', { item }, { label: 'Add event' });
++    const r = apiRef.exec('timeline.addItem', { item }, { label: 'Add event' });
++    if (r && r.ok === false) {
++      console.error('[timeline] addItem failed', r.error);
++      return;
++    }
+     select(item.id);
+     render();
+   };
+@@ -356,7 +368,11 @@ export function mountTimelineView(root, api) {
+       color: '#3d3830',
+     });
+     const item = createItem(fields);
+-    apiRef.exec('timeline.addItem', { item }, { label: 'Add period' });
++    const r = apiRef.exec('timeline.addItem', { item }, { label: 'Add period' });
++    if (r && r.ok === false) {
++      console.error('[timeline] add period failed', r.error);
++      return;
++    }
+     select(item.id);
+     render();
+   };
+diff --git a/tests/unit/geom-timeline-board.test.js b/tests/unit/geom-timeline-board.test.js
+index 05b286c..e4f6af2 100644
+--- a/tests/unit/geom-timeline-board.test.js
++++ b/tests/unit/geom-timeline-board.test.js
+@@ -12,7 +12,9 @@ import {
+   createItem,
+   syncScenesToTimeline,
+   demoItems,
++  ensureProjectTimeline,
+ } from '../../src/core/timeline/model.js';
++import { addTimelineItem } from '../../src/core/store/mutations/timeline.js';
+ import {
+   emptyBoardGraph,
+   createBoardItem,
+@@ -106,6 +108,31 @@ describe('timeline model', () => {
+     const items = demoItems();
+     expect(items.some((i) => i.title.includes('Yavin') && i.t0 === 0)).toBe(true);
+   });
++
++  it('ensureProjectTimeline preserves items when calendar is missing', () => {
++    const item = createItem({ kind: 'instant', t0: 10, title: 'Kept' });
++    const project = {
++      blocks: [],
++      timeline: { id: 'tl_x', name: 'Story', items: [item] }, // no calendar
++    };
++    const next = ensureProjectTimeline(project);
++    expect(next.timeline.calendar).toBeTruthy();
++    expect(next.timeline.items).toHaveLength(1);
++    expect(next.timeline.items[0].title).toBe('Kept');
++  });
++
++  it('addTimelineItem keeps caller id and accumulates', () => {
++    let p = emptyProject();
++    const a = createItem({ kind: 'instant', t0: 0, title: 'A' });
++    p = addTimelineItem(p, { item: a });
++    expect(p.timeline.items).toHaveLength(1);
++    expect(p.timeline.items[0].id).toBe(a.id);
++    const b = createItem({ kind: 'span', t0: 0, t1: 100, title: 'B' });
++    p = addTimelineItem(p, { item: b });
++    expect(p.timeline.items).toHaveLength(2);
++    // empty-state predicate used by the view
++    expect((p.timeline.items || []).length > 0).toBe(true);
++  });
+ });
+ 
+ describe('board model + templates', () => {
