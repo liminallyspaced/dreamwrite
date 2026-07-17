@@ -248,6 +248,27 @@ async function main() {
       JSON.stringify(board8c)
     );
 
+    // Phase 8d: relationship template + guides layer
+    const board8d = await cdp.evaluate(`(() => {
+      try {
+        if (window.PlatenUI?.setView) window.PlatenUI.setView('board');
+        const sel = document.querySelector('#boardRoot .bd-templates');
+        const opts = sel ? [...sel.options].map((o) => o.value) : [];
+        return {
+          hasRelationshipTpl: opts.includes('relationship-map'),
+          hasGuidesLayer: !!document.querySelector('#boardRoot .bd-guides'),
+          templateCount: opts.filter(Boolean).length,
+        };
+      } catch (e) {
+        return { error: String(e && e.message || e) };
+      }
+    })()`);
+    check(
+      'board 8d polish/template surface',
+      !board8d.error && board8d.hasRelationshipTpl && board8d.hasGuidesLayer && board8d.templateCount >= 5,
+      JSON.stringify(board8d)
+    );
+
     // back to script for block typing checks
     await cdp.evaluate(`(() => { if (window.PlatenUI?.setView) window.PlatenUI.setView('script'); })()`);
     await new Promise((r) => setTimeout(r, 200));

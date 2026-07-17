@@ -40,6 +40,12 @@ export function listTemplates() {
       description: 'World · Plot · Character columns for brainstorming',
       apply: applyStoryMap,
     },
+    {
+      id: 'relationship-map',
+      name: 'Character Relationship Map',
+      description: 'Character nodes with labeled connectors (beyond Milanote)',
+      apply: applyRelationshipMap,
+    },
   ];
 }
 
@@ -186,7 +192,95 @@ function applyCharacterProfile(graph) {
 }
 
 function applyStoryMap(graph) {
-  return applyThreeAct(graph); // columns variant already good; could differentiate later
+  const root = graph.rootId;
+  let g = graph;
+  const cols = [
+    { title: 'World', x: 40, beats: ['Setting', 'Rules', 'Tone'] },
+    { title: 'Plot', x: 300, beats: ['Inciting incident', 'Midpoint', 'Climax'] },
+    { title: 'Character', x: 560, beats: ['Protagonist', 'Antagonist', 'Ally'] },
+  ];
+  for (const col of cols) {
+    const childIds = [];
+    const notes = [];
+    let y = 100;
+    for (const beat of col.beats) {
+      const note = createBoardItem('note', {
+        boardId: root,
+        title: beat,
+        body: '',
+        x: col.x + 12,
+        y,
+        w: 216,
+        h: 72,
+      });
+      notes.push(note);
+      childIds.push(note.id);
+      y += 84;
+    }
+    const column = createBoardItem('column', {
+      boardId: root,
+      title: col.title,
+      x: col.x,
+      y: 40,
+      w: 240,
+      h: 320,
+      childIds,
+    });
+    g = addItemToBoard(g, root, column);
+    for (const note of notes) {
+      note.parentId = column.id;
+      g = addItemToBoard(g, root, note);
+    }
+  }
+  return g;
+}
+
+/**
+ * Character Relationship Map — nodes + labeled connectors (Phase 8d).
+ */
+function applyRelationshipMap(graph) {
+  const root = graph.rootId;
+  let g = graph;
+  const nodes = [
+    { id: 'rel_pro', title: 'Protagonist', x: 280, y: 200, color: '#e8e0d0' },
+    { id: 'rel_ant', title: 'Antagonist', x: 520, y: 80, color: '#c4b8a8' },
+    { id: 'rel_ally', title: 'Ally', x: 80, y: 80, color: '#d4cfc4' },
+    { id: 'rel_love', title: 'Love interest', x: 80, y: 320, color: '#ddd4c4' },
+    { id: 'rel_men', title: 'Mentor', x: 520, y: 320, color: '#cfc8b8' },
+  ];
+  for (const n of nodes) {
+    const note = createBoardItem('note', {
+      id: n.id,
+      boardId: root,
+      title: n.title,
+      body: '',
+      x: n.x,
+      y: n.y,
+      w: 160,
+      h: 90,
+      color: n.color,
+    });
+    g = addItemToBoard(g, root, note);
+  }
+  const edges = [
+    { from: 'rel_pro', to: 'rel_ant', label: 'opposes' },
+    { from: 'rel_pro', to: 'rel_ally', label: 'trusts' },
+    { from: 'rel_pro', to: 'rel_love', label: 'desires' },
+    { from: 'rel_pro', to: 'rel_men', label: 'learns from' },
+    { from: 'rel_ally', to: 'rel_ant', label: 'fears' },
+  ];
+  edges.forEach((e, i) => {
+    const conn = createBoardItem('connector', {
+      id: `rel_c_${i}`,
+      boardId: root,
+      fromId: e.from,
+      toId: e.to,
+      label: e.label,
+      curved: true,
+    });
+    g = addItemToBoard(g, root, conn);
+  });
+  return g;
 }
 
 /**

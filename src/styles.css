@@ -1368,6 +1368,48 @@ button[data-bd="arrow"].active,
   padding: 2px 4px;
 }
 .bd-todo-add { align-self: flex-start; font-size: 11px; }
+
+/* Phase 8d — guides, lock */
+.bd-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  overflow: hidden;
+}
+.bd-guide {
+  position: absolute;
+  background: rgba(180, 40, 30, 0.55);
+}
+.bd-guide-v {
+  width: 1px;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+}
+.bd-guide-h {
+  height: 1px;
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+.bd-card.bd-locked {
+  opacity: 0.92;
+  cursor: default;
+}
+.bd-card.bd-locked::after {
+  content: '🔒';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.bd-card.bd-locked .bd-resize,
+.bd-card.bd-locked .bd-port {
+  display: none;
+}
 .bd-todo { display: flex; gap: 6px; align-items: center; font-size: 11px; }
 .bd-card.type-image { padding-bottom: 8px; }
 .bd-image {

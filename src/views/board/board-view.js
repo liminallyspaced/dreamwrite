@@ -38,6 +38,14 @@ import {
   indexFromY,
   SEMANTIC_COLORS,
 } from '../../core/board/columns.js';
+import {
+  boundsOfItems,
+  fitCameraToBounds,
+  snapWithGuides,
+  cloneBoardItem,
+  moveItemToBoard,
+  findSubBoardAtPoint,
+} from '../../core/board/canvas.js';
 import { listTemplates } from '../../core/board/templates.js';
 import {
   normalizeTable,
@@ -93,9 +101,10 @@ export function mountBoardView(root, api) {
       <div class="bd-grid" aria-hidden="true"></div>
       <div class="bd-layer"></div>
       <div class="bd-marquee" hidden aria-hidden="true"></div>
+      <div class="bd-guides" aria-hidden="true"></div>
       <div class="bd-empty" hidden>
         <p><strong>Empty board</strong></p>
-        <p class="muted">Double-click for a note · marquee / Shift+click select · drag · resize corner</p>
+        <p class="muted">Double-click note · Z fit · Alt-drag duplicate · arrows nudge · drop on sub-board</p>
       </div>
     </div>
   `;
@@ -103,6 +112,7 @@ export function mountBoardView(root, api) {
   const stage = root.querySelector('.bd-stage');
   const layer = root.querySelector('.bd-layer');
   const marqueeEl = root.querySelector('.bd-marquee');
+  const guidesEl = root.querySelector('.bd-guides');
   const crumbs = root.querySelector('.bd-crumbs');
   const emptyEl = root.querySelector('.bd-empty');
   let cam = createCamera({ scale: 1, lockY: false, minScale: 0.25, maxScale: 3, panX: 40, panY: 40 });
@@ -134,6 +144,8 @@ export function mountBoardView(root, api) {
   let apiRef = api;
   /** Rubber-band SVG path while linking */
   let rubberEl = null;
+  /** Breadcrumb hover timer for drop-into-ancestor (Phase 8d) */
+  let crumbHold = null;
 
   function setApi(next) {
     apiRef = next;
@@ -176,6 +188,21 @@ export function mountBoardView(root, api) {
         currentBoardId = btn.dataset.board;
         render();
       };
+      // Hold-over breadcrumb while dragging → move selection into that board
+      btn.addEventListener('pointerenter', () => {
+        if (!drag || drag.mode !== 'move') return;
+        clearTimeout(crumbHold);
+        crumbHold = setTimeout(() => {
+          const targetBoardId = btn.dataset.board;
+          if (!targetBoardId || targetBoardId === ensureBoardId()) return;
+          moveSelectionToBoard(targetBoardId);
+          drag = null;
+        }, 450);
+      });
+      btn.addEventListener('pointerleave', () => {
+        clearTimeout(crumbHold);
+        crumbHold = null;
+      });
     });
 
     layer.innerHTML = '';
@@ -198,6 +225,7 @@ export function mountBoardView(root, api) {
       el.className = `bd-card type-${it.type}`;
       if (selection.has(it.id)) el.classList.add('selected');
       if (it.parentId) el.classList.add('bd-in-column');
+      if (it.locked) el.classList.add('bd-locked');
       el.dataset.id = it.id;
       el.style.left = `${it.x}px`;
       el.style.top = `${it.y}px`;
@@ -308,6 +336,13 @@ export function mountBoardView(root, api) {
         e.stopPropagation();
         stage.focus();
         selectedConnectorId = null;
+        if (it.locked && !e.altKey) {
+          // Allow select locked cards but not move
+          if (e.shiftKey) selection = toggleInSelection(selection, it.id);
+          else selection = selectOnly(selection, it.id);
+          paintSelectionOnly();
+          return;
+        }
         if (e.shiftKey) {
           selection = toggleInSelection(selection, it.id);
         } else if (!selection.has(it.id)) {
@@ -322,11 +357,15 @@ export function mountBoardView(root, api) {
             for (const cid of item.childIds || []) idSet.add(cid);
           }
         }
-        ids = [...idSet];
+        ids = [...idSet].filter((id) => !g.items[id]?.locked);
+        if (!ids.length) {
+          paintSelectionOnly();
+          return;
+        }
         const origins = new Map();
         for (const id of ids) {
           const item = g.items[id];
-          if (item) origins.set(id, { x: item.x, y: item.y });
+          if (item) origins.set(id, { x: item.x, y: item.y, w: item.w, h: item.h });
         }
         drag = {
           mode: 'move',
@@ -335,6 +374,7 @@ export function mountBoardView(root, api) {
           ox: e.clientX,
           oy: e.clientY,
           origins,
+          altDup: !!e.altKey,
         };
         el.setPointerCapture(e.pointerId);
         paintSelectionOnly();
@@ -815,6 +855,144 @@ export function mountBoardView(root, api) {
     };
   }
 
+  function paintGuides(guides) {
+    if (!guidesEl) return;
+    guidesEl.innerHTML = '';
+    if (!guides?.length) {
+      guidesEl.hidden = true;
+      return;
+    }
+    guidesEl.hidden = false;
+    const rect = stage.getBoundingClientRect();
+    for (const g of guides) {
+      const line = document.createElement('div');
+      line.className = `bd-guide bd-guide-${g.type}`;
+      if (g.type === 'v') {
+        // world x → screen
+        const sx = g.pos * cam.scale + cam.panX;
+        line.style.left = `${sx}px`;
+        line.style.top = '0';
+        line.style.height = `${rect.height}px`;
+      } else {
+        const sy = g.pos * cam.scale + cam.panY;
+        line.style.top = `${sy}px`;
+        line.style.left = '0';
+        line.style.width = `${rect.width}px`;
+      }
+      guidesEl.appendChild(line);
+    }
+  }
+
+  function clearGuides() {
+    if (!guidesEl) return;
+    guidesEl.innerHTML = '';
+    guidesEl.hidden = true;
+  }
+
+  function zoomToFit() {
+    const items = selectableItems();
+    const bounds = boundsOfItems(items);
+    const rect = stage.getBoundingClientRect();
+    cam = fitCameraToBounds(cam, bounds, { width: rect.width, height: rect.height }, 56);
+    render();
+  }
+
+  function nudgeSelection(dx, dy) {
+    const updates = [];
+    for (const id of selection) {
+      const it = graph().items[id];
+      if (!it || it.locked || it.type === 'connector') continue;
+      updates.push({
+        id,
+        patch: { x: Math.round((it.x || 0) + dx), y: Math.round((it.y || 0) + dy) },
+      });
+      // Move column children with parent
+      if (it.type === 'column') {
+        for (const cid of it.childIds || []) {
+          const ch = graph().items[cid];
+          if (!ch) continue;
+          updates.push({
+            id: cid,
+            patch: { x: Math.round((ch.x || 0) + dx), y: Math.round((ch.y || 0) + dy) },
+          });
+        }
+      }
+    }
+    if (!updates.length) return;
+    apiRef.exec(
+      'board.updateItems',
+      { updates, label: 'Nudge cards' },
+      { label: 'Nudge cards' }
+    );
+    render();
+  }
+
+  function toggleLockSelection() {
+    if (!selection.size) return;
+    const updates = [];
+    for (const id of selection) {
+      const it = graph().items[id];
+      if (!it || it.type === 'connector') continue;
+      updates.push({ id, patch: { locked: !it.locked } });
+    }
+    if (!updates.length) return;
+    apiRef.exec(
+      'board.updateItems',
+      { updates, label: 'Toggle lock' },
+      { label: 'Toggle lock' }
+    );
+    render();
+  }
+
+  function commitAltDuplicate(dragState, dx, dy) {
+    const boardId = ensureBoardId();
+    const g = graph();
+    // Originals stay; create clones at offset positions
+    for (const id of dragState.ids) {
+      const src = g.items[id];
+      const o = dragState.origins.get(id);
+      if (!src || src.type === 'connector' || !o) continue;
+      if (src.type === 'column') continue; // skip column shells (children handled if selected)
+      const newId = boardUid('bit');
+      const clone = cloneBoardItem(src, newId, { x: 0, y: 0 });
+      clone.boardId = boardId;
+      clone.x = Math.round(o.x + dx);
+      clone.y = Math.round(o.y + dy);
+      apiRef.exec('board.addItem', { boardId, item: clone }, { label: 'Duplicate card' });
+    }
+  }
+
+  function tryDropOnSubBoard(dragState, dx, dy) {
+    const g = graph();
+    const primary = g.items[dragState.primaryId];
+    const o = dragState.origins.get(dragState.primaryId);
+    if (!primary || !o || primary.type === 'sub-board') return;
+    const cx = o.x + dx + (primary.w || 100) / 2;
+    const cy = o.y + dy + (primary.h || 50) / 2;
+    const hit = findSubBoardAtPoint(selectableItems(), { x: cx, y: cy });
+    if (!hit?.targetBoardId) return;
+    // Don't drop into self via weird ids
+    if (hit.id === primary.id) return;
+    moveSelectionToBoard(hit.targetBoardId, [primary.id]);
+  }
+
+  function moveSelectionToBoard(targetBoardId, onlyIds) {
+    const ids = onlyIds || [...selection];
+    let g = graph();
+    let moved = 0;
+    for (const id of ids) {
+      const res = moveItemToBoard(g, id, targetBoardId);
+      if (res.error) continue;
+      g = res.graph;
+      moved += 1;
+    }
+    if (!moved) return;
+    apiRef.exec('board.set', { boards: g }, { label: 'Move into board' });
+    selection = clearSelection();
+    currentBoardId = targetBoardId;
+    render();
+  }
+
   /**
    * Commit a group move, then snap free cards into / out of columns (Phase 8c).
    */
@@ -1164,15 +1342,30 @@ export function mountBoardView(root, api) {
       return;
     }
     if (drag && drag.mode === 'move') {
-      const dx = (e.clientX - drag.ox) / cam.scale;
-      const dy = (e.clientY - drag.oy) / cam.scale;
+      let dx = (e.clientX - drag.ox) / cam.scale;
+      let dy = (e.clientY - drag.oy) / cam.scale;
+      // Advisory smart guides on primary card
+      const gLive = graph();
+      const primary = gLive.items[drag.primaryId];
+      const po = drag.origins.get(drag.primaryId);
+      if (primary && po) {
+        const others = selectableItems().filter((it) => !drag.ids.includes(it.id));
+        const snapped = snapWithGuides(
+          { id: primary.id, x: po.x + dx, y: po.y + dy, w: po.w || primary.w, h: po.h || primary.h },
+          others,
+          6 / cam.scale
+        );
+        dx = snapped.x - po.x;
+        dy = snapped.y - po.y;
+        paintGuides(snapped.guides);
+      }
       for (const id of drag.ids) {
         const o = drag.origins.get(id);
         if (!o) continue;
-        const el = layer.querySelector(`.bd-card[data-id="${id}"]`);
-        if (el) {
-          el.style.left = `${Math.round(o.x + dx)}px`;
-          el.style.top = `${Math.round(o.y + dy)}px`;
+        const cardEl = layer.querySelector(`.bd-card[data-id="${id}"]`);
+        if (cardEl) {
+          cardEl.style.left = `${Math.round(o.x + dx)}px`;
+          cardEl.style.top = `${Math.round(o.y + dy)}px`;
         }
       }
       drag._dx = dx;
@@ -1232,8 +1425,15 @@ export function mountBoardView(root, api) {
     } else if (drag && drag.mode === 'move') {
       const dx = drag._dx || 0;
       const dy = drag._dy || 0;
+      clearGuides();
       if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-        commitMoveWithColumns(drag, dx, dy);
+        if (drag.altDup) {
+          commitAltDuplicate(drag, dx, dy);
+        } else {
+          commitMoveWithColumns(drag, dx, dy);
+          // Nested: drop on sub-board tile
+          tryDropOnSubBoard(drag, dx, dy);
+        }
       }
       drag = null;
       render();
@@ -1287,7 +1487,34 @@ export function mountBoardView(root, api) {
     if (e.key === 'Escape') {
       e.preventDefault();
       selection = clearSelection();
+      selectedConnectorId = null;
+      linkArmed = false;
       paintSelectionOnly();
+      return;
+    }
+    // Z = zoom to fit all cards
+    if (e.key === 'z' && !mod && !e.shiftKey) {
+      e.preventDefault();
+      zoomToFit();
+      return;
+    }
+    // L = lock / unlock selection
+    if (e.key === 'l' && !mod) {
+      e.preventDefault();
+      toggleLockSelection();
+      return;
+    }
+    // Arrow key nudge (Shift = coarse)
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selection.size) {
+      e.preventDefault();
+      const step = e.shiftKey ? 20 : 4;
+      let dx = 0;
+      let dy = 0;
+      if (e.key === 'ArrowLeft') dx = -step;
+      if (e.key === 'ArrowRight') dx = step;
+      if (e.key === 'ArrowUp') dy = -step;
+      if (e.key === 'ArrowDown') dy = step;
+      nudgeSelection(dx, dy);
       return;
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConnectorId) {
@@ -1303,7 +1530,8 @@ export function mountBoardView(root, api) {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) {
       e.preventDefault();
-      const ids = [...selection];
+      const ids = [...selection].filter((id) => !graph().items[id]?.locked);
+      if (!ids.length) return;
       apiRef.exec('board.removeItems', { ids }, { label: ids.length > 1 ? 'Delete cards' : 'Delete card' });
       selection = clearSelection();
       render();
