@@ -106,6 +106,15 @@ import { mountBoardView } from './views/board/board-view.js';
     exec('blocks.setText', { id, text }, { mergeKey: `block:${id}` });
   }
 
+  function refreshActiveSurfaces() {
+    if (state.view === 'timeline') ensureTimelineMounted();
+    if (state.view === 'board') ensureBoardMounted();
+    if (state.view === 'cards') renderCards();
+    if (state.view === 'characters') renderCharacters();
+    if (state.view === 'locations') renderLocations();
+    if (state.view === 'search') renderSearchResults();
+  }
+
   function performUndo() {
     const r = store.undo();
     if (!r.ok) return;
@@ -118,22 +127,27 @@ import { mountBoardView } from './views/board/board-view.js';
     renderScenes();
     refreshStats();
     renderHistory();
+    refreshActiveSurfaces();
     updateChrome();
     scheduleAutosave();
-    if (state.activeBlockId) focusBlock(state.activeBlockId);
+    if (state.activeBlockId && state.view === 'script') focusBlock(state.activeBlockId);
   }
 
   function performRedo() {
     const r = store.redo();
     if (!r.ok) return;
     pullFromStore();
+    if (state.activeBlockId && !getBlock(state.activeBlockId)) {
+      state.activeBlockId = state.project.blocks[0]?.id || null;
+    }
     renderBlocks();
     renderScenes();
     refreshStats();
     renderHistory();
+    refreshActiveSurfaces();
     updateChrome();
     scheduleAutosave();
-    if (state.activeBlockId) focusBlock(state.activeBlockId);
+    if (state.activeBlockId && state.view === 'script') focusBlock(state.activeBlockId);
   }
 
   const MONO_CARD = ['#111', '#333', '#555', '#777', '#222', '#444', '#666', '#000'];
@@ -2055,8 +2069,10 @@ import { mountBoardView } from './views/board/board-view.js';
     if (target) target.classList.add('active');
     $$('.view-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === state.view));
     if (state.view === 'cards' && !(state.project.cards || []).length) {
-      // Prefer store path if available; seed empty board cards only when none exist
-      state.project.cards = E.autoCardsFromScenes(state.project);
+      const cards = E.autoCardsFromScenes(state.project);
+      if (cards.length) {
+        exec('cards.set', { cards }, { label: 'Sync cards' });
+      }
       renderCards();
     }
     if (state.view === 'characters') renderCharacters();

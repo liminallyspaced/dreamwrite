@@ -1,14 +1,14 @@
 /**
  * Infinite ink board — notes, scene cards, sub-boards, columns, templates.
  */
-import { createCamera, worldToScreenX, worldToScreenY, screenToWorldX, screenToWorldY, zoomAt, panBy } from '../../core/geom/camera.js';
+import { createCamera, screenToWorldX, screenToWorldY, zoomAt, panBy } from '../../core/geom/camera.js';
 import {
   ensureProjectBoards,
   createBoardItem,
   breadcrumbPath,
+  uid as boardUid,
 } from '../../core/board/model.js';
 import { listTemplates } from '../../core/board/templates.js';
-import { uid as boardUid } from '../../core/board/model.js';
 
 /**
  * @param {HTMLElement} root
@@ -19,41 +19,52 @@ import { uid as boardUid } from '../../core/board/model.js';
  * }} api
  */
 export function mountBoardView(root, api) {
-  if (!root || root.dataset.mounted === '1') {
-    return { render: () => render(), destroy: () => {} };
+  if (root && root.__platenBoard) {
+    root.__platenBoard.setApi(api);
+    return root.__platenBoard;
   }
-  root.dataset.mounted = '1';
+  if (!root) return { render() {}, destroy() {}, setApi() {} };
 
   const templates = listTemplates();
   root.innerHTML = `
     <div class="bd-toolbar">
       <strong class="section-kicker">Board</strong>
       <nav class="bd-crumbs" aria-label="Board path"></nav>
-      <div style="flex:1"></div>
-      <button type="button" class="ghost" data-bd="note">+ Note</button>
-      <button type="button" class="ghost" data-bd="sync">Sync scenes</button>
+      <div class="bd-spacer"></div>
+      <button type="button" class="primary-soft" data-bd="note">+ Note</button>
+      <button type="button" class="ghost" data-bd="sync" title="Place a card per scene">Sync scenes</button>
       <button type="button" class="ghost" data-bd="sub">+ Sub-board</button>
-      <select class="bd-templates" title="Templates">
+      <select class="bd-templates" title="Writing templates" aria-label="Templates">
         <option value="">Template…</option>
         ${templates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}
       </select>
     </div>
-    <div class="bd-stage" tabindex="0">
+    <div class="bd-stage" tabindex="0" role="application" aria-label="Story board">
       <div class="bd-grid" aria-hidden="true"></div>
       <div class="bd-layer"></div>
+      <div class="bd-empty" hidden>
+        <p><strong>Empty board</strong></p>
+        <p class="muted">Double-click for a note · Sync scenes · or pick a template.</p>
+      </div>
     </div>
   `;
 
   const stage = root.querySelector('.bd-stage');
   const layer = root.querySelector('.bd-layer');
   const crumbs = root.querySelector('.bd-crumbs');
-  let cam = createCamera({ scale: 1, lockY: false, minScale: 0.25, maxScale: 3, panX: 0, panY: 0 });
+  const emptyEl = root.querySelector('.bd-empty');
+  let cam = createCamera({ scale: 1, lockY: false, minScale: 0.25, maxScale: 3, panX: 40, panY: 40 });
   let currentBoardId = null;
   let drag = null;
   let panning = null;
+  let apiRef = api;
+
+  function setApi(next) {
+    apiRef = next;
+  }
 
   function graph() {
-    return ensureProjectBoards(api.getProject()).boards;
+    return ensureProjectBoards(apiRef.getProject()).boards;
   }
 
   function ensureBoardId() {
@@ -67,6 +78,12 @@ export function mountBoardView(root, api) {
     const boardId = ensureBoardId();
     const board = g.boards[boardId];
     if (!board) return;
+
+    const itemCount = (board.items || []).filter((id) => {
+      const it = g.items[id];
+      return it && it.type !== 'connector';
+    }).length;
+    if (emptyEl) emptyEl.hidden = itemCount > 0;
 
     // Breadcrumbs
     const path = breadcrumbPath(g, boardId);
@@ -150,7 +167,7 @@ export function mountBoardView(root, api) {
       const titleIn = el.querySelector('.bd-card-title');
       if (titleIn) {
         titleIn.addEventListener('change', () => {
-          api.exec(
+          apiRef.exec(
             'board.updateItem',
             { id: it.id, patch: { title: titleIn.value } },
             { mergeKey: `bd:${it.id}:title` }
@@ -160,7 +177,7 @@ export function mountBoardView(root, api) {
       const bodyIn = el.querySelector('.bd-card-body');
       if (bodyIn) {
         bodyIn.addEventListener('change', () => {
-          api.exec(
+          apiRef.exec(
             'board.updateItem',
             { id: it.id, patch: { body: bodyIn.value } },
             { mergeKey: `bd:${it.id}:body` }
@@ -168,7 +185,7 @@ export function mountBoardView(root, api) {
         });
       }
       el.querySelector('.bd-open-scene')?.addEventListener('click', () => {
-        if (it.sceneId) api.onJumpToScene(it.sceneId);
+        if (it.sceneId) apiRef.onJumpToScene(it.sceneId);
       });
       el.querySelector('.bd-open-board')?.addEventListener('click', () => {
         if (it.targetBoardId) {
@@ -177,7 +194,6 @@ export function mountBoardView(root, api) {
         }
       });
 
-      // Double-click sub-board to open
       if (it.type === 'sub-board') {
         el.addEventListener('dblclick', () => {
           if (it.targetBoardId) {
@@ -186,6 +202,17 @@ export function mountBoardView(root, api) {
           }
         });
       }
+
+      // Delete key when card focused
+      el.tabIndex = 0;
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (e.target.closest('input, textarea')) return;
+          e.preventDefault();
+          apiRef.exec('board.removeItem', { id: it.id }, { label: 'Delete card' });
+          render();
+        }
+      });
 
       layer.appendChild(el);
     }
@@ -228,16 +255,16 @@ export function mountBoardView(root, api) {
     const item = createBoardItem('note', {
       id: boardUid('bit'),
       boardId,
-      x: 80 - cam.panX / cam.scale,
-      y: 80 - cam.panY / cam.scale,
+      x: Math.round(80 - cam.panX / cam.scale),
+      y: Math.round(80 - cam.panY / cam.scale),
       title: '',
       body: '',
     });
-    api.exec('board.addItem', { boardId, item }, { label: 'Add note' });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add note' });
     render();
   };
   root.querySelector('[data-bd="sync"]').onclick = () => {
-    api.exec(
+    apiRef.exec(
       'board.syncScenes',
       { boardId: ensureBoardId() },
       { label: 'Sync board from scenes' }
@@ -245,7 +272,7 @@ export function mountBoardView(root, api) {
     render();
   };
   root.querySelector('[data-bd="sub"]').onclick = () => {
-    api.exec(
+    apiRef.exec(
       'board.createSubBoard',
       { parentBoardId: ensureBoardId(), title: 'Sub-board' },
       { label: 'Create sub-board' }
@@ -255,11 +282,12 @@ export function mountBoardView(root, api) {
   root.querySelector('.bd-templates').onchange = (e) => {
     const id = e.target.value;
     if (!id) return;
-    if (!confirm(`Apply template “${id}”? This replaces the current board graph.`)) {
+    const name = listTemplates().find((t) => t.id === id)?.name || id;
+    if (!confirm(`Apply “${name}”? This replaces the current board.`)) {
       e.target.value = '';
       return;
     }
-    api.exec('board.applyTemplate', { templateId: id, wipe: true }, { label: 'Apply template' });
+    apiRef.exec('board.applyTemplate', { templateId: id, wipe: true }, { label: 'Apply template' });
     currentBoardId = graph().rootId;
     e.target.value = '';
     render();
@@ -275,7 +303,7 @@ export function mountBoardView(root, api) {
     if (drag) {
       const dx = (e.clientX - drag.ox) / cam.scale;
       const dy = (e.clientY - drag.oy) / cam.scale;
-      api.exec(
+      apiRef.exec(
         'board.updateItem',
         {
           id: drag.id,
@@ -319,7 +347,7 @@ export function mountBoardView(root, api) {
       x: Math.round(wx),
       y: Math.round(wy),
     });
-    api.exec('board.addItem', { boardId, item }, { label: 'Add note' });
+    apiRef.exec('board.addItem', { boardId, item }, { label: 'Add note' });
     render();
   });
 
@@ -335,9 +363,11 @@ export function mountBoardView(root, api) {
   }
 
   function destroy() {
-    root.dataset.mounted = '0';
     root.innerHTML = '';
+    delete root.__platenBoard;
   }
 
-  return { render, destroy };
+  const controller = { render, destroy, setApi };
+  root.__platenBoard = controller;
+  return controller;
 }

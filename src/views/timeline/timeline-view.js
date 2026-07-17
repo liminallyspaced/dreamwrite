@@ -16,35 +16,42 @@ import { ensureProjectTimeline } from '../../core/timeline/model.js';
  * }} api
  */
 export function mountTimelineView(root, api) {
-  if (!root || root.dataset.mounted === '1') {
-    return { render: () => render(), destroy: () => {} };
+  // Singleton: remount must return the same controller (not a broken closure).
+  if (root && root.__platenTimeline) {
+    root.__platenTimeline.setApi(api);
+    return root.__platenTimeline;
   }
-  root.dataset.mounted = '1';
+  if (!root) return { render() {}, destroy() {}, setApi() {} };
+
   root.innerHTML = `
     <div class="tl-toolbar">
       <strong class="section-kicker">Timeline</strong>
-      <span class="muted">Integer ticks · calendars are display-only</span>
-      <div style="flex:1"></div>
-      <button type="button" class="ghost" data-tl="sync">Sync scenes</button>
-      <button type="button" class="ghost" data-tl="demo">Demo eras</button>
-      <button type="button" class="ghost" data-tl="add">+ Instant</button>
+      <span class="muted tl-sub">Ticks are absolute · calendar is labels only</span>
+      <div class="tl-spacer"></div>
+      <button type="button" class="ghost" data-tl="sync" title="Create events from scene headings">Sync scenes</button>
+      <button type="button" class="ghost" data-tl="demo" title="Seed BBY/ABY demo eras">Demo eras</button>
+      <button type="button" class="primary-soft" data-tl="add">+ Event</button>
       <button type="button" class="ghost" data-tl="fit">Fit</button>
     </div>
-    <div class="tl-stage" tabindex="0">
+    <div class="tl-stage" tabindex="0" role="application" aria-label="Story timeline">
       <canvas class="tl-axis" aria-hidden="true"></canvas>
       <div class="tl-layer tl-spans"></div>
       <div class="tl-layer tl-instants"></div>
+      <div class="tl-empty" hidden>
+        <p><strong>No events yet</strong></p>
+        <p class="muted">Sync scenes from your script, add an event, or load demo eras (BBY/ABY).</p>
+      </div>
     </div>
     <div class="tl-detail" hidden>
       <div class="tl-detail-inner">
         <header class="tl-detail-head">
-          <input class="tl-detail-title" />
+          <input class="tl-detail-title" aria-label="Event title" />
           <span class="tl-detail-date"></span>
           <button type="button" class="ghost" data-tl="goto">Open scene</button>
           <button type="button" class="ghost danger-del" data-tl="del">Delete</button>
-          <button type="button" class="ghost" data-tl="close">✕</button>
+          <button type="button" class="ghost" data-tl="close" aria-label="Close">✕</button>
         </header>
-        <textarea class="tl-detail-body" rows="4" placeholder="Description"></textarea>
+        <textarea class="tl-detail-body" rows="3" placeholder="Description"></textarea>
       </div>
     </div>
   `;
@@ -54,12 +61,18 @@ export function mountTimelineView(root, api) {
   const spanLayer = root.querySelector('.tl-spans');
   const instantLayer = root.querySelector('.tl-instants');
   const detail = root.querySelector('.tl-detail');
+  const emptyEl = root.querySelector('.tl-empty');
   let cam = createCamera({ scale: 0.15, lockY: true, minScale: 0.02, maxScale: 8, panX: 80 });
   let selectedId = null;
   let dragging = null;
+  let apiRef = api;
+
+  function setApi(next) {
+    apiRef = next;
+  }
 
   function project() {
-    return ensureProjectTimeline(api.getProject());
+    return ensureProjectTimeline(apiRef.getProject());
   }
 
   function timeline() {
@@ -70,6 +83,7 @@ export function mountTimelineView(root, api) {
     const tl = timeline();
     const cal = tl.calendar;
     const items = tl.items || [];
+    if (emptyEl) emptyEl.hidden = items.length > 0;
     const rect = stage.getBoundingClientRect();
     const w = Math.max(320, rect.width);
     const h = Math.max(280, rect.height);
@@ -224,11 +238,11 @@ export function mountTimelineView(root, api) {
   }
 
   root.querySelector('[data-tl="sync"]').onclick = () => {
-    api.exec('timeline.syncScenes', {}, { label: 'Sync timeline from scenes' });
+    apiRef.exec('timeline.syncScenes', {}, { label: 'Sync timeline from scenes' });
     render();
   };
   root.querySelector('[data-tl="demo"]').onclick = () => {
-    api.exec('timeline.seedDemo', {}, { label: 'Seed demo timeline' });
+    apiRef.exec('timeline.seedDemo', {}, { label: 'Seed demo timeline' });
     render();
   };
   root.querySelector('[data-tl="add"]').onclick = () => {
@@ -240,7 +254,7 @@ export function mountTimelineView(root, api) {
       title: 'New event',
       color: '#333',
     };
-    api.exec('timeline.addItem', { item }, { label: 'Add event' });
+    apiRef.exec('timeline.addItem', { item }, { label: 'Add event' });
     select(item.id);
     render();
   };
@@ -263,18 +277,18 @@ export function mountTimelineView(root, api) {
   };
   detail.querySelector('[data-tl="del"]').onclick = () => {
     if (!selectedId) return;
-    api.exec('timeline.removeItem', { id: selectedId }, { label: 'Delete event' });
+    apiRef.exec('timeline.removeItem', { id: selectedId }, { label: 'Delete event' });
     selectedId = null;
     detail.hidden = true;
     render();
   };
   detail.querySelector('[data-tl="goto"]').onclick = () => {
     const it = (timeline().items || []).find((x) => x.id === selectedId);
-    if (it?.entityId) api.onJumpToScene(it.entityId);
+    if (it?.entityId) apiRef.onJumpToScene(it.entityId);
   };
   detail.querySelector('.tl-detail-title').addEventListener('change', (e) => {
     if (!selectedId) return;
-    api.exec(
+    apiRef.exec(
       'timeline.updateItem',
       { id: selectedId, patch: { title: e.target.value } },
       { mergeKey: `tl:${selectedId}:title` }
@@ -283,7 +297,7 @@ export function mountTimelineView(root, api) {
   });
   detail.querySelector('.tl-detail-body').addEventListener('change', (e) => {
     if (!selectedId) return;
-    api.exec(
+    apiRef.exec(
       'timeline.updateItem',
       { id: selectedId, patch: { description: e.target.value } },
       { mergeKey: `tl:${selectedId}:desc` }
@@ -317,7 +331,7 @@ export function mountTimelineView(root, api) {
       const dx = e.clientX - dragging.startX;
       const dt = dx / cam.scale;
       const t0 = Math.round(dragging.t0 + dt);
-      api.exec(
+      apiRef.exec(
         'timeline.updateItem',
         { id: dragging.id, patch: { t0 } },
         { mergeKey: `tl:${dragging.id}:drag` }
@@ -341,9 +355,11 @@ export function mountTimelineView(root, api) {
 
   function destroy() {
     ro.disconnect();
-    root.dataset.mounted = '0';
     root.innerHTML = '';
+    delete root.__platenTimeline;
   }
 
-  return { render, destroy };
+  const controller = { render, destroy, setApi };
+  root.__platenTimeline = controller;
+  return controller;
 }

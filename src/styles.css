@@ -1305,3 +1305,78 @@ textarea { resize: vertical; min-height: 80px; }
 .search-hit:hover { background: var(--bg-hover); }
 .search-hit strong { font-family: var(--font-type); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
 .search-hit .snip { display: block; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
+/* Timeline / board polish — empty states, light theme, spacers */
+.tl-spacer, .bd-spacer { flex: 1; min-width: 8px; }
+.tl-sub { font-size: 11px; }
+.primary-soft {
+  background: var(--bg-active, #242424);
+  border: 1px solid var(--border, #2a2a2a);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.primary-soft:hover { background: var(--bg-hover); }
+.tl-empty, .bd-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  text-align: center;
+  padding: 24px;
+  z-index: 2;
+}
+.tl-empty p, .bd-empty p { margin: 4px 0; max-width: 320px; }
+html.theme-light .tl-stage,
+html.theme-light .bd-stage {
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(255,252,245,0.65), transparent 55%),
+    var(--bg-panel);
+}
+html.theme-light .tl-detail {
+  background: var(--bg-elev);
+  border-top-color: var(--border);
+}
+html.theme-light .tl-pill {
+  background: var(--page);
+  border-color: var(--border);
+  color: var(--page-text);
+}
+html.theme-light .bd-card {
+  box-shadow: 0 1px 0 rgba(0,0,0,0.06), 0 6px 16px rgba(0,0,0,0.08);
+}
+html.theme-light .bd-grid {
+  background-image: radial-gradient(rgba(80,70,50,0.22) 1px, transparent 1px);
+}
+html.theme-light .search-hit {
+  background: var(--bg-elev);
+  border-color: var(--border);
+}
+html.theme-light .tl-detail-title,
+html.theme-light .tl-detail-body,
+html.theme-light .bd-templates {
+  background: var(--page);
+  border-color: var(--border);
+  color: var(--page-text);
+}
+#view-timeline, #view-board {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+#view-timeline.active, #view-board.active {
+  display: flex;
+}
+.view#view-script.active,
+.view#view-cards.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}

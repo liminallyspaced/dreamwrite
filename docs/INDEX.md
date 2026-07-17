@@ -42,15 +42,15 @@ workspace — script + Milanote-style board + fictional-calendar timeline.
 ## Phases
 
 ```
-Phase 0  Scaffolding    esbuild · vitest · split app.js      no user-visible change
-Phase 1  Trust      ★   page count becomes TRUE · undo       the product fix
-Phase 2  Wheel      ★   marking menu · eyes-free writing     the daily-driver fix
-Phase 3  Timeline   ★   the clip, in ink (+ shared kernel)   new surface
-Phase 4  Board      ★   Milanote, offline, linked            new surface
-Phase 5  Complete       templates · clipper · stock          opt-in / online
+Phase 0  Scaffolding    DONE  esbuild · vitest · module split
+Phase 1  Trust      ★   DONE  pagination · undo · multi-page · PDF font
+Phase 2  Wheel      ★   DONE  marking menu · marks · ≤8 contextual rings
+Phase 3  Timeline   ★   DONE  ticks · BBY/ABY · lane pack · scene link
+Phase 4  Board      ★   DONE  nested boards · scene-cards · templates
+Phase 5  Complete       DONE* offline templates + search; collab/Pexels/clipper declined
 ```
 
-**Phase 1 + 2 alone is the app the README already claims to be.** Everything after is the expansion.
+\* Phase 5 ships offline completeness. Network features remain explicit non-goals (see handoff).
 
 ---
 
