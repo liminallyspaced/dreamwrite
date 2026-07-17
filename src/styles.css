@@ -55,7 +55,16 @@
   font-display: swap;
 }
 
-/* Brand / headings */
+/* Brand / titles — Notable (OFL; assets/fonts/Notable-OFL.txt) */
+@font-face {
+  font-family: "Notable";
+  src: url("../assets/fonts/Notable-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Secondary display / long headings */
 @font-face {
   font-family: "Source Serif 4";
   src: url("../assets/fonts/SourceSerif4-Regular.ttf") format("truetype");
@@ -98,7 +107,9 @@ html.theme-dark {
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* UI never uses Courier — paper does */
   --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --font-display: "Source Serif 4", "Georgia", "Times New Roman", serif;
+  /* DreamWrite title face (Notable) — brand, library, modal titles */
+  --font-title: "Notable", "Arial Black", "Impact", sans-serif;
+  --font-display: var(--font-title);
   --font-type: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-script: "Courier Prime", "Courier New", Courier, monospace;
   --top-slim: 44px;
@@ -282,10 +293,10 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .brand-name {
-  font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  font-size: 13px;
+  font-family: var(--font-title);
+  font-weight: 400; /* Notable ships regular only */
+  letter-spacing: 0.18em;
+  font-size: 14px;
   text-transform: uppercase;
 }
 .slim-actions { display: flex; gap: 2px; }
@@ -1828,7 +1839,14 @@ html.theme-light .bd-templates {
   text-transform: uppercase; color: var(--text-faint);
   font-family: var(--font-type);
 }
-.lib-brand h1 { margin: 2px 0 0; font-family: var(--font-display); font-weight: 600; font-size: 28px; }
+.lib-brand h1 {
+  margin: 2px 0 0;
+  font-family: var(--font-title);
+  font-weight: 400;
+  font-size: 30px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .lib-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .lib-theme-label {
   display: flex; flex-direction: column; gap: 2px;
@@ -1867,7 +1885,11 @@ html.theme-light .bd-templates {
 }
 .lib-cover-img { width: 100%; height: 100%; object-fit: cover; }
 .lib-cover-fallback {
-  font-family: var(--font-display); font-size: 48px; color: var(--text-faint);
+  font-family: var(--font-title);
+  font-size: 48px;
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
 }
 .lib-card-body { padding: 10px 12px 6px; display: flex; flex-direction: column; gap: 2px; }
 .lib-card-title {
@@ -1920,7 +1942,14 @@ html.theme-light .bd-templates {
   border-radius: 12px; box-shadow: var(--shadow); overflow: hidden;
 }
 .dw-modal-head { padding: 14px 16px; border-bottom: 1px solid var(--border-soft); }
-.dw-modal-title { margin: 0; font-size: 15px; font-family: var(--font-display); }
+.dw-modal-title {
+  margin: 0;
+  font-size: 16px;
+  font-family: var(--font-title);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .dw-modal-body { padding: 16px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
 .dw-modal-msg { margin: 0 0 10px; }
 .dw-prompt-input {
