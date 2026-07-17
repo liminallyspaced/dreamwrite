@@ -3,7 +3,6 @@ import {
   setBlockDomText,
   readBlockText,
   placeCaretEnd,
-  placeCaretStart,
   isCaretAtEnd,
   placeholderFor,
 } from './views/script/block-dom.js';
@@ -15,7 +14,6 @@ import {
 import {
   escapeHtml,
   escapeAttr,
-  safeColor,
   escapeRegExp,
   slugify,
   baseName,
@@ -32,13 +30,7 @@ import { searchProject } from './core/project/search.js';
 import { createStore } from './core/store/index.js';
 import { mountTimelineView } from './views/timeline/timeline-view.js';
 import { mountBoardView } from './views/board/board-view.js';
-import {
-  smarttypeSuggestions,
-  sceneTabAdvance,
-  applySceneSuggestion,
-  sceneSlugPhase,
-} from './core/script/smarttype.js';
-import { toast, confirmModal, alertModal, promptModal } from './core/ui/dialogs.js';
+import { toast, confirmModal, promptModal } from './core/ui/dialogs.js';
 import {
   touchLibraryEntry,
   loadThemePref,
@@ -47,6 +39,20 @@ import {
 } from './core/library/catalog.js';
 import { mountLibraryView } from './views/library/library-view.js';
 import { createCommandPalette, showShortcutsOverlay } from './views/chrome/command-palette.js';
+import { createFindReplace } from './views/find-replace.js';
+import { createAutocompleteUi } from './views/script/autocomplete-ui.js';
+import { createBlockKeyboard } from './views/script/block-keyboard.js';
+import { createGlobalKeyHandler } from './views/chrome/global-keys.js';
+import {
+  renderScenesPanel,
+  highlightSceneForBlock as highlightScenePanel,
+  renderCardsPanel,
+  renderCharactersPanel,
+  renderLocationsPanel,
+  renderTitleFormPanel,
+  paintTitlePreview as paintTitlePreviewPanel,
+  syncTitleFromForm as syncTitleFromFormPanel,
+} from './views/panels/side-panels.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -209,6 +215,10 @@ import { createCommandPalette, showShortcutsOverlay } from './views/chrome/comma
 
   let libraryApi = null;
   let commandPalette = null;
+  /** Late-bound extract modules (wired in wireExtracts() before init). */
+  let findApi = null;
+  let acApi = null;
+  let blockKeys = null;
 
   function init() {
     bindUi();
@@ -1743,127 +1753,7 @@ import { createCommandPalette, showShortcutsOverlay } from './views/chrome/comma
   }
 
   function onBlockKeydown(e, id, textEl) {
-    const b = getBlock(id);
-    if (!b) return;
-
-    // Allow normal typing — never preventDefault on printable keys
-    if (els.ac.classList.contains('show')) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        state.acIndex = Math.min(state.acIndex + 1, state.acItems.length - 1);
-        paintAc();
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        state.acIndex = Math.max(state.acIndex - 1, 0);
-        paintAc();
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        if (state.acItems[state.acIndex]) {
-          e.preventDefault();
-          applyAc(state.acItems[state.acIndex], textEl, b);
-          return;
-        }
-      }
-      if (e.key === 'Escape') {
-        hideAc();
-        return;
-      }
-    }
-
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      b.text = readBlockText(textEl);
-      // Scene SmartType Tab: INT. → location → time (Final Draft)
-      if (b.type === 'scene' && !e.shiftKey) {
-        const adv = sceneTabAdvance(b.text);
-        if (adv.handled) {
-          exec('blocks.setText', { id, text: adv.text }, { mergeKey: `block:${id}` });
-          setBlockDomText(textEl, adv.text);
-          placeCaretEnd(textEl);
-          maybeShowAc(textEl, getBlock(id));
-          return;
-        }
-      }
-      // Accept AC first when open
-      if (els.ac.classList.contains('show') && state.acItems[state.acIndex]) {
-        applyAc(state.acItems[state.acIndex], textEl, b);
-        return;
-      }
-      cycleType(id, e.shiftKey);
-      return;
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      hideAc();
-      b.text = readBlockText(textEl);
-      insertAfter(id);
-      return;
-    }
-
-    if (e.key === 'Backspace') {
-      const text = readBlockText(textEl);
-      const sel = window.getSelection();
-      const atStart =
-        sel &&
-        sel.rangeCount &&
-        sel.getRangeAt(0).collapsed &&
-        (() => {
-          const r = sel.getRangeAt(0);
-          const pre = document.createRange();
-          pre.selectNodeContents(textEl);
-          pre.setEnd(r.startContainer, r.startOffset);
-          return pre.toString().length === 0;
-        })();
-      if (!text || (atStart && !text)) {
-        const idx = indexOfBlock(id);
-        if (idx > 0 && !text) {
-          e.preventDefault();
-          const prevId = state.project.blocks[idx - 1].id;
-          exec('blocks.remove', { id }, { label: 'Delete block' });
-          renderBlocks();
-          renderScenes();
-          focusBlock(prevId);
-          refreshStats();
-        }
-      }
-    }
-
-    // Arrow up/down between blocks at edges
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      const idx = indexOfBlock(id);
-      if (e.key === 'ArrowUp' && idx > 0) {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount) {
-          const r = sel.getRangeAt(0);
-          const pre = document.createRange();
-          pre.selectNodeContents(textEl);
-          pre.setEnd(r.startContainer, r.startOffset);
-          if (pre.toString().length === 0 && r.collapsed) {
-            e.preventDefault();
-            b.text = readBlockText(textEl);
-            focusBlock(state.project.blocks[idx - 1].id);
-          }
-        }
-      }
-      if (e.key === 'ArrowDown' && idx < state.project.blocks.length - 1) {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount) {
-          const r = sel.getRangeAt(0);
-          const post = document.createRange();
-          post.selectNodeContents(textEl);
-          post.setStart(r.endContainer, r.endOffset);
-          if (post.toString().length === 0 && r.collapsed) {
-            e.preventDefault();
-            b.text = readBlockText(textEl);
-            focusBlock(state.project.blocks[idx + 1].id);
-          }
-        }
-      }
-    }
+    return blockKeys?.onBlockKeydown(e, id, textEl);
   }
 
   function cycleType(id, reverse = false) {
@@ -2023,236 +1913,44 @@ import { createCommandPalette, showShortcutsOverlay } from './views/chrome/comma
     return els.pageStack.querySelector(`.block-row[data-id="${safe}"]`);
   }
 
-  /* ---------- scenes sidebar ---------- */
+  /* ---------- scenes / cards / cast / locations / title (panels extract) ---------- */
 
   function renderScenes() {
-    const list = els.sceneList;
-    list.innerHTML = '';
-    let n = 0;
-    state.project.blocks.forEach((b) => {
-      if (b.type !== 'scene') return;
-      n += 1;
-      const item = document.createElement('div');
-      item.className = 'scene-item';
-      item.dataset.blockId = b.id;
-      item.innerHTML = `<div class="scene-num">SCENE ${n}</div><div class="scene-title">${escapeHtml(b.text || 'Untitled scene')}</div>`;
-      item.onclick = () => {
-        setView('script');
-        focusBlock(b.id, true);
-        item.scrollIntoView({ block: 'nearest' });
-      };
-      list.appendChild(item);
-    });
-    if (!n) {
-      list.innerHTML = `<div style="padding:12px;color:var(--text-faint);font-size:12px">No scenes yet. Add a Scene Heading (Ctrl+1) or press +.</div>`;
-    }
+    renderScenesPanel(els.sceneList, state.project, { setView, focusBlock });
   }
 
   function highlightSceneForBlock(blockId) {
-    const idx = indexOfBlock(blockId);
-    let sceneId = null;
-    for (let i = idx; i >= 0; i--) {
-      if (state.project.blocks[i].type === 'scene') {
-        sceneId = state.project.blocks[i].id;
-        break;
-      }
-    }
-    $$('.scene-item').forEach((el) => {
-      el.classList.toggle('active', el.dataset.blockId === sceneId);
-    });
+    highlightScenePanel(blockId, state.project, indexOfBlock);
   }
 
-  /* ---------- cards / cast / locations ---------- */
-
   function renderCards() {
-    const board = els.cardsBoard;
-    board.innerHTML = '';
-    const cards = state.project.cards || [];
-    if (!cards.length) {
-      board.innerHTML = `<div style="grid-column:1/-1;color:var(--text-faint);padding:24px">No cards yet. Click “Sync from scenes” or add a beat card.</div>`;
-      return;
-    }
-    cards.forEach((card, i) => {
-      const el = document.createElement('div');
-      el.className = card.orphaned ? 'card orphaned' : 'card';
-      // card.color came from project JSON straight into a style attribute
-      // unescaped (findings.md §5.5). CSP blocks script execution so it was not
-      // full XSS, but it is still an attribute-injection hole. Whitelist instead.
-      const swatch = safeColor(card.color);
-      el.innerHTML = `
-        <div class="card-top">
-          <span class="card-swatch" style="background:${swatch}"></span>
-          <span class="card-num">#${card.number || i + 1}</span>
-          ${card.orphaned ? '<span class="card-orphan-tag" title="This card&#39;s scene is no longer in the script. Your notes were kept.">no scene</span>' : ''}
-        </div>
-        <input class="card-title-input" value="${escapeAttr(card.title || '')}" />
-        <textarea class="card-summary" placeholder="What happens / emotional beat…">${escapeHtml(card.summary || '')}</textarea>
-        <input class="card-beat" placeholder="Story beat (setup, turn, climax…)" value="${escapeAttr(card.beat || '')}" />
-      `;
-      el.querySelector('.card-title-input').oninput = (e) => {
-        exec(
-          'cards.update',
-          { id: card.id, patch: { title: e.target.value } },
-          { mergeKey: `card:${card.id}:title`, label: 'Edit card' }
-        );
-      };
-      el.querySelector('.card-summary').oninput = (e) => {
-        exec(
-          'cards.update',
-          { id: card.id, patch: { summary: e.target.value } },
-          { mergeKey: `card:${card.id}:summary`, label: 'Edit card' }
-        );
-      };
-      el.querySelector('.card-beat').oninput = (e) => {
-        exec(
-          'cards.update',
-          { id: card.id, patch: { beat: e.target.value } },
-          { mergeKey: `card:${card.id}:beat`, label: 'Edit card' }
-        );
-      };
-      board.appendChild(el);
-    });
+    renderCardsPanel(els.cardsBoard, state.project, { exec });
   }
 
   function renderCharacters() {
-    const root = els.charList;
-    root.innerHTML = '';
-    const list = state.project.characters || [];
-    if (!list.length) {
-      root.innerHTML = `<div style="color:var(--text-faint);font-size:13px">No characters yet. Write dialogue or click Scan script.</div>`;
-      return;
-    }
-    list.forEach((c) => {
-      const el = document.createElement('div');
-      el.className = 'entity';
-      el.innerHTML = `
-        <div class="entity-head">
-          <strong>${escapeHtml(c.name || 'Unnamed')}</strong>
-          <button class="ghost danger-del">Delete</button>
-        </div>
-        <div class="fields">
-          <input data-f="name" value="${escapeAttr(c.name || '')}" placeholder="NAME" />
-          <input data-f="role" value="${escapeAttr(c.role || '')}" placeholder="Role (protagonist, foil…)" />
-          <textarea data-f="description" placeholder="Description / look / want">${escapeHtml(c.description || '')}</textarea>
-          <textarea data-f="notes" placeholder="Notes">${escapeHtml(c.notes || '')}</textarea>
-        </div>
-      `;
-      el.querySelectorAll('[data-f]').forEach((input) => {
-        input.addEventListener('input', () => {
-          const field = input.dataset.f;
-          exec(
-            'bible.updateCharacter',
-            { id: c.id, patch: { [field]: input.value } },
-            { mergeKey: `char:${c.id}:${field}`, label: 'Edit character' }
-          );
-          if (field === 'name') {
-            el.querySelector('strong').textContent = input.value || 'Unnamed';
-          }
-        });
-      });
-      el.querySelector('.danger-del').onclick = () => {
-        exec('bible.removeCharacter', { id: c.id }, { label: 'Delete character' });
-        renderCharacters();
-      };
-      root.appendChild(el);
+    renderCharactersPanel(els.charList, state.project, {
+      exec,
+      onChanged: () => renderCharacters(),
     });
   }
 
   function renderLocations() {
-    const root = els.locList;
-    root.innerHTML = '';
-    const list = state.project.locations || [];
-    if (!list.length) {
-      root.innerHTML = `<div style="color:var(--text-faint);font-size:13px">No locations yet. Add scene headings or click Scan script.</div>`;
-      return;
-    }
-    list.forEach((loc) => {
-      const el = document.createElement('div');
-      el.className = 'entity';
-      el.innerHTML = `
-        <div class="entity-head">
-          <strong>${escapeHtml(loc.name || 'Unnamed')}</strong>
-          <button class="ghost danger-del">Delete</button>
-        </div>
-        <div class="fields">
-          <input data-f="name" value="${escapeAttr(loc.name || '')}" placeholder="Location name" />
-          <input data-f="intExt" value="${escapeAttr(loc.intExt || '')}" placeholder="INT / EXT / I-E" />
-          <input data-f="times" value="${escapeAttr((loc.times || []).join(', '))}" placeholder="Times of day" />
-          <textarea data-f="notes" placeholder="Notes / production">${escapeHtml(loc.notes || '')}</textarea>
-        </div>
-      `;
-      el.querySelectorAll('[data-f]').forEach((input) => {
-        input.addEventListener('input', () => {
-          const field = input.dataset.f;
-          const patch =
-            field === 'times'
-              ? { times: input.value.split(',').map((s) => s.trim()).filter(Boolean) }
-              : { [field]: input.value };
-          exec(
-            'bible.updateLocation',
-            { id: loc.id, patch },
-            { mergeKey: `loc:${loc.id}:${field}`, label: 'Edit location' }
-          );
-          if (field === 'name') el.querySelector('strong').textContent = input.value || 'Unnamed';
-        });
-      });
-      el.querySelector('.danger-del').onclick = () => {
-        exec('bible.removeLocation', { id: loc.id }, { label: 'Delete location' });
-        renderLocations();
-      };
-      root.appendChild(el);
+    renderLocationsPanel(els.locList, state.project, {
+      exec,
+      onChanged: () => renderLocations(),
     });
   }
 
   function renderTitleForm() {
-    const tp = state.project.titlePage || {};
-    $('#tpTitle').value = tp.title || '';
-    $('#tpAuthor').value = tp.writtenBy || '';
-    $('#tpBased').value = tp.basedOn || '';
-    $('#tpDate').value = tp.draftDate || '';
-    $('#tpContact').value = tp.contact || '';
-    paintTitlePreview();
+    renderTitleFormPanel(state.project, $);
   }
 
   function paintTitlePreview() {
-    const tp = state.project.titlePage || {};
-    const title = $('#tpPrevTitle');
-    const author = $('#tpPrevAuthor');
-    const based = $('#tpPrevBased');
-    const date = $('#tpPrevDate');
-    const contact = $('#tpPrevContact');
-    if (title) title.textContent = (tp.title || 'Untitled').toUpperCase();
-    if (author) author.textContent = tp.writtenBy || '';
-    if (based) {
-      if (tp.basedOn) {
-        based.hidden = false;
-        based.textContent = `Based on ${tp.basedOn}`;
-      } else {
-        based.hidden = true;
-        based.textContent = '';
-      }
-    }
-    if (date) date.textContent = tp.draftDate || '';
-    if (contact) contact.textContent = tp.contact || '';
+    paintTitlePreviewPanel(state.project, $);
   }
 
   function syncTitleFromForm() {
-    exec(
-      'meta.setTitlePage',
-      {
-        titlePage: {
-          ...(state.project.titlePage || {}),
-          title: $('#tpTitle').value,
-          writtenBy: $('#tpAuthor').value,
-          basedOn: $('#tpBased').value,
-          draftDate: $('#tpDate').value,
-          contact: $('#tpContact').value,
-        },
-      },
-      { mergeKey: 'meta:title', label: 'Title page' }
-    );
-    paintTitlePreview();
-    updateChrome();
+    syncTitleFromFormPanel(state.project, $, { exec, updateChrome });
   }
 
   function renderHistory() {
@@ -2549,149 +2247,35 @@ import { createCommandPalette, showShortcutsOverlay } from './views/chrome/comma
   }
 
   function toggleFind(show) {
-    els.findBar.classList.toggle('show', show);
-    document.getElementById('app')?.classList.toggle('find-open', !!show);
-    if (show) {
-      els.findInput.focus();
-      els.findInput.select();
-    }
+    return findApi?.toggleFind(show);
   }
 
-  /* ---------- find / replace ---------- */
-
   function findNext() {
-    const q = els.findInput.value;
-    if (!q) return;
-    const blocks = state.project.blocks;
-    const start = state.findIndex + 1;
-    for (let i = 0; i < blocks.length; i++) {
-      const idx = (start + i) % blocks.length;
-      if ((blocks[idx].text || '').toLowerCase().includes(q.toLowerCase())) {
-        state.findIndex = idx;
-        setView('script');
-        focusBlock(blocks[idx].id, true);
-        return;
-      }
-    }
+    return findApi?.findNext();
   }
 
   function replaceOne() {
-    const q = els.findInput.value;
-    const r = els.replaceInput.value;
-    if (!q || state.findIndex < 0) {
-      findNext();
-      return;
-    }
-    const b = state.project.blocks[state.findIndex];
-    if (!b) return;
-    const re = new RegExp(escapeRegExp(q), 'i');
-    const nextText = (b.text || '').replace(re, r);
-    if (nextText === b.text) {
-      findNext();
-      return;
-    }
-    exec('blocks.setText', { id: b.id, text: nextText }, { label: 'Replace' });
-    renderBlocks();
-    focusBlock(b.id);
-    refreshStats();
+    return findApi?.replaceOne();
   }
 
   function replaceAll() {
-    const q = els.findInput.value;
-    const r = els.replaceInput.value;
-    if (!q) return;
-    const re = new RegExp(escapeRegExp(q), 'gi');
-    let count = 0;
-    for (const b of state.project.blocks || []) {
-      const m = (b.text || '').match(re);
-      if (m) count += m.length;
-      re.lastIndex = 0;
-    }
-    if (!count) {
-      toast('No matches.');
-      return;
-    }
-    const result = exec(
-      'blocks.replaceAll',
-      { find: q, replace: r, caseSensitive: false },
-      { label: `Replace all (${count})` }
-    );
-    if (result.ok && !result.noop) {
-      renderBlocks();
-      refreshStats();
-    }
-    toast(`Replaced ${count} occurrence(s).`);
+    return findApi?.replaceAll();
   }
 
-  /* ---------- autocomplete (SmartType) ---------- */
-
   function maybeShowAc(div, block) {
-    if (!block || !div) {
-      hideAc();
-      return;
-    }
-    const type = block.type;
-    if (type !== 'character' && type !== 'scene' && type !== 'transition') {
-      hideAc();
-      return;
-    }
-    const q = block.text || '';
-    const items = smarttypeSuggestions(type, q, {
-      blocks: state.project.blocks || [],
-      characters: state.project.characters || [],
-      limit: 8,
-    });
-    // Scene: show prefixes even when empty; character/transition need query or list
-    if (!items.length) {
-      hideAc();
-      return;
-    }
-    if (type === 'character' && !(q || '').trim()) {
-      // Still show top names when empty cue
-    }
-    state.acItems = items;
-    state.acIndex = 0;
-    const rect = div.getBoundingClientRect();
-    els.ac.style.left = `${rect.left}px`;
-    els.ac.style.top = `${rect.bottom + 4}px`;
-    paintAc();
-    els.ac.classList.add('show');
+    return acApi?.maybeShowAc(div, block);
   }
 
   function paintAc() {
-    els.ac.innerHTML = state.acItems
-      .map((n, i) => `<div class="${i === state.acIndex ? 'active' : ''}" data-i="${i}">${escapeHtml(n)}</div>`)
-      .join('');
-    els.ac.querySelectorAll('div').forEach((d) => {
-      d.onmousedown = (e) => {
-        e.preventDefault();
-        const b = getBlock(state.activeBlockId);
-        const div = blockEl(state.activeBlockId);
-        applyAc(state.acItems[+d.dataset.i], div, b);
-      };
-    });
+    return acApi?.paintAc();
   }
 
   function applyAc(suggestion, textEl, block) {
-    if (!block || !textEl || !suggestion) return;
-    let next = suggestion;
-    if (block.type === 'scene') {
-      next = applySceneSuggestion(block.text || readBlockText(textEl), suggestion);
-    }
-    exec('blocks.setText', { id: block.id, text: next }, { mergeKey: `block:${block.id}` });
-    setBlockDomText(textEl, next);
-    placeCaretEnd(textEl);
-    hideAc();
-    if (block.type === 'scene') {
-      renderScenes();
-      // keep offering next phase
-      maybeShowAc(textEl, getBlock(block.id));
-    }
+    return acApi?.applyAc(suggestion, textEl, block);
   }
 
   function hideAc() {
-    els.ac.classList.remove('show');
-    state.acItems = [];
+    return acApi?.hideAc();
   }
 
   function sceneNumberForBlock(blockId) {
@@ -2702,118 +2286,6 @@ import { createCommandPalette, showShortcutsOverlay } from './views/chrome/comma
       if (b.id === blockId) return n;
     }
     return 0;
-  }
-
-  /* ---------- global keys ---------- */
-
-  function onGlobalKeydown(e) {
-    const mod = e.ctrlKey || e.metaKey;
-    const tag = (e.target && e.target.tagName) || '';
-    const typing =
-      !!e.target?.isContentEditable ||
-      tag === 'INPUT' ||
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT';
-
-    // Shortcuts overlay (?) — not while typing
-    if (!mod && e.key === '?' && !typing) {
-      e.preventDefault();
-      showShortcutsOverlay();
-      return;
-    }
-
-    // Never hijack plain character keys — only shortcuts
-    if (!mod && e.key !== 'F11') return;
-
-    // Command palette
-    if (mod && !e.shiftKey && e.key.toLowerCase() === 'k') {
-      e.preventDefault();
-      commandPalette?.toggle();
-      return;
-    }
-    // Library
-    if (mod && e.shiftKey && e.key.toLowerCase() === 'l') {
-      e.preventDefault();
-      showLibrary(true);
-      return;
-    }
-    // Editor zoom
-    if (mod && (e.key === '=' || e.key === '+')) {
-      e.preventDefault();
-      setEditorZoom(state.editorZoom * 1.1);
-      return;
-    }
-    if (mod && e.key === '-') {
-      e.preventDefault();
-      setEditorZoom(state.editorZoom * 0.9);
-      return;
-    }
-    if (mod && e.key === '0') {
-      e.preventDefault();
-      setEditorZoom(1);
-      return;
-    }
-
-    // Own undo/redo (Chromium CE undo is wiped by renderBlocks)
-    if (mod && !e.altKey && e.key.toLowerCase() === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      performUndo();
-      return;
-    }
-    if (mod && !e.altKey && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
-      e.preventDefault();
-      performRedo();
-      return;
-    }
-
-    if (mod && e.key.toLowerCase() === 's') {
-      e.preventDefault();
-      saveProject(e.shiftKey);
-    }
-    if (mod && e.key.toLowerCase() === 'o') {
-      e.preventDefault();
-      openProject();
-    }
-    if (mod && e.key.toLowerCase() === 'n') {
-      e.preventDefault();
-      newProject();
-    }
-    if (mod && e.key.toLowerCase() === 'f') {
-      e.preventDefault();
-      toggleFind(true);
-    }
-    if (mod && e.key.toLowerCase() === 'p') {
-      e.preventDefault();
-      exportPdf();
-    }
-    if (mod && e.key.toLowerCase() === 't' && !e.shiftKey) {
-      e.preventDefault();
-      toggleTheme();
-    }
-    // F11 handled in ui-chrome for focus cycle
-    if (mod && !e.shiftKey && e.key >= '1' && e.key <= '7') {
-      const map = ['scene', 'action', 'character', 'parenthetical', 'dialogue', 'transition', 'shot'];
-      if (state.activeBlockId) {
-        e.preventDefault();
-        setBlockType(state.activeBlockId, map[+e.key - 1]);
-      }
-    }
-    if (mod && e.shiftKey && e.key >= '1' && e.key <= '9') {
-      const views = [
-        'script',
-        'cards',
-        'board',
-        'timeline',
-        'characters',
-        'locations',
-        'title',
-        'notes',
-        'search',
-      ];
-      e.preventDefault();
-      showLibrary(false);
-      setView(views[+e.key - 1]);
-    }
   }
 
   /* ---------- utils (pure helpers live in views/shared/text.js) ---------- */
@@ -2827,5 +2299,66 @@ import { createCommandPalette, showShortcutsOverlay } from './views/chrome/comma
     URL.revokeObjectURL(a.href);
   }
 
+  /** Wire extracted modules after host functions exist (hoisted decls). */
+  function wireExtracts() {
+    findApi = createFindReplace({
+      getEls: () => els,
+      getState: () => state,
+      setView,
+      focusBlock,
+      exec,
+      renderBlocks,
+      refreshStats,
+      toast,
+      escapeRegExp,
+    });
+    acApi = createAutocompleteUi({
+      getEls: () => els,
+      getState: () => state,
+      getBlock,
+      blockEl,
+      exec,
+      renderScenes,
+    });
+    blockKeys = createBlockKeyboard({
+      getState: () => state,
+      getEls: () => els,
+      getBlock,
+      indexOfBlock,
+      exec,
+      renderBlocks,
+      renderScenes,
+      focusBlock,
+      refreshStats,
+      cycleType,
+      insertAfter,
+      maybeShowAc,
+      paintAc,
+      applyAc,
+      hideAc,
+    });
+    return createGlobalKeyHandler({
+      get commandPalette() {
+        return commandPalette;
+      },
+      showShortcutsOverlay,
+      showLibrary,
+      setEditorZoom,
+      getEditorZoom: () => state.editorZoom,
+      performUndo,
+      performRedo,
+      saveProject,
+      openProject,
+      newProject,
+      toggleFind,
+      exportPdf,
+      toggleTheme,
+      setBlockType,
+      setView,
+      getActiveBlockId: () => state.activeBlockId,
+    });
+  }
+
+  const onGlobalKeydown = wireExtracts();
   init();
 })();
