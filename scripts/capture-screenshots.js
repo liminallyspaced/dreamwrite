@@ -131,11 +131,13 @@ async function main() {
     await cdp.waitFor('document.readyState === "complete"');
     await cdp.waitFor('typeof window.ScriptEngine !== "undefined"');
 
-    // Load sample so screenshots show real script content
+    // Load sample (Phase 10 A5: library Sample first, legacy welcome stub fallback)
     await cdp.evaluate(`(() => {
+      const lib = document.querySelector('[data-lib="sample"]');
+      if (lib) { lib.click(); return 'library'; }
       const b = document.querySelector('#welcomeSample');
-      if (b) b.click();
-      return !!b;
+      if (b) { b.click(); return 'welcome-stub'; }
+      return 'none';
     })()`);
     await new Promise((r) => setTimeout(r, 1400));
 

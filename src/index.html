@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="theme-dark">
+<html lang="en" class="theme-dark" data-theme="carbon">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -39,20 +39,31 @@
         <div class="panel-row file-row">
           <button class="ghost" id="btnImport" title="Import Fountain">Import</button>
           <div class="tb-sep"></div>
-          <div class="tb-group nav-views">
-            <button class="ghost view-btn active" data-view="script">Script</button>
-            <button class="ghost view-btn" data-view="cards">Cards</button>
-            <button class="ghost view-btn" data-view="board">Board</button>
-            <button class="ghost view-btn" data-view="timeline">Timeline</button>
-            <button class="ghost view-btn" data-view="characters">Cast</button>
-            <button class="ghost view-btn" data-view="locations">Locations</button>
-            <button class="ghost view-btn" data-view="title">Title</button>
-            <button class="ghost view-btn" data-view="notes">Notes</button>
-            <button class="ghost view-btn" data-view="search">Search</button>
+          <div class="tb-group nav-views nav-view-groups">
+            <div class="view-group" data-group="write">
+              <span class="view-group-label">Write</span>
+              <button class="ghost view-btn active" data-view="script">Script</button>
+            </div>
+            <div class="view-group" data-group="plan">
+              <span class="view-group-label">Plan</span>
+              <button class="ghost view-btn" data-view="board">Board</button>
+              <button class="ghost view-btn" data-view="timeline">Timeline</button>
+              <button class="ghost view-btn" data-view="cards">Cards</button>
+            </div>
+            <div class="view-group" data-group="reference">
+              <span class="view-group-label">Ref</span>
+              <button class="ghost view-btn" data-view="characters">Cast</button>
+              <button class="ghost view-btn" data-view="locations">Locations</button>
+              <button class="ghost view-btn" data-view="title">Title</button>
+              <button class="ghost view-btn" data-view="notes">Notes</button>
+              <button class="ghost view-btn" data-view="search">Search</button>
+            </div>
           </div>
           <div class="tb-grow"></div>
+          <button class="ghost" id="btnLibrary" title="Library (Ctrl+Shift+L)">Library</button>
+          <button class="ghost" id="btnPalette" title="Command palette (Ctrl+K)">⌘K</button>
           <button class="ghost" id="btnFind" title="Find / replace (Ctrl+F)">Find</button>
-          <button class="ghost" id="btnTheme" title="Toggle dark desk / light paper theme">Theme</button>
+          <button class="ghost" id="btnTheme" title="Cycle theme">Theme</button>
         </div>
 
         <div id="formatRibbon" class="ribbon" role="toolbar" aria-label="Element format">
@@ -272,6 +283,7 @@
       <span class="pill" id="statusElement">Action</span>
       <span id="statusCounts" class="status-counts" title="Page · runtime · scenes · words">1p</span>
       <button type="button" class="pill ghost-pill" id="statusLint" title="Format check" hidden>0 flags</button>
+      <button type="button" class="pill ghost-pill" id="statusZoom" title="Editor zoom (Ctrl+scroll · Ctrl+0)">100%</button>
       <span class="pill" id="mmbHint">MMB · mark / wheel / pan</span>
     </footer>
   </div>
@@ -299,29 +311,14 @@
   <!-- legacy ids used by app -->
   <button id="btnFocus" hidden></button>
 
-  <div id="welcome">
-    <div class="welcome-card">
-      <div class="welcome-logo"><img src="../assets/welcome-logo.png" alt="DreamWrite" onerror="this.src='../assets/ICON-DreamWrite.png'" /></div>
-      <h1>DreamWrite</h1>
-      <p>
-        Expandable tool rails. Desk / Paper focus.
-        Hold <strong>middle mouse</strong> for the radial tool wheel.
-        Courier Prime · paper grain · ink edge.
-      </p>
-      <div class="welcome-actions">
-        <button class="primary" id="welcomeNew">New screenplay</button>
-        <button id="welcomeOpen">Open project</button>
-        <button id="welcomeImport">Import Fountain</button>
-        <button class="ghost" id="welcomeSample">Load sample</button>
-      </div>
-      <div class="feature-grid">
-        <div><strong>Desk / Paper</strong>Two focus modes with motion</div>
-        <div><strong>Radial wheel</strong>Hold middle-mouse for INT/EXT &amp; styles</div>
-        <div><strong>Expand rails</strong>Top tools &amp; scene list collapse cleanly</div>
-        <div><strong>Industry format</strong>Courier Prime · 1.5″ left · lint</div>
-      </div>
-    </div>
+  <!-- Legacy welcome kept for smoke selectors; hidden — library is home (Phase 10) -->
+  <div id="welcome" class="hidden" aria-hidden="true">
+    <button id="welcomeNew" hidden></button>
+    <button id="welcomeOpen" hidden></button>
+    <button id="welcomeImport" hidden></button>
+    <button id="welcomeSample" hidden></button>
   </div>
+  <div id="library" class="hidden" aria-label="Project library"></div>
 
   <div class="modal-backdrop" id="helpModal">
     <div class="modal">

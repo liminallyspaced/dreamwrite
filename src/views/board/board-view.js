@@ -38,6 +38,7 @@ import {
   indexFromY,
   SEMANTIC_COLORS,
 } from '../../core/board/columns.js';
+import { toast, confirmModal } from '../../core/ui/dialogs.js';
 import {
   boundsOfItems,
   fitCameraToBounds,
@@ -1073,7 +1074,7 @@ export function mountBoardView(root, api) {
 
   async function replaceImageAsset(itemId) {
     if (!apiRef.importImage) {
-      alert('Image import requires the DreamWrite desktop app.');
+      toast('Image import requires the DreamWrite desktop app.');
       return;
     }
     const asset = await apiRef.importImage();
@@ -1166,7 +1167,7 @@ export function mountBoardView(root, api) {
   });
   root.querySelector('[data-bd="image"]').onclick = async () => {
     if (!apiRef.importImage) {
-      alert('Image import requires the DreamWrite desktop app.');
+      toast('Image import requires the DreamWrite desktop app.');
       return;
     }
     const asset = await apiRef.importImage();
@@ -1240,11 +1241,16 @@ export function mountBoardView(root, api) {
     );
     render();
   };
-  root.querySelector('.bd-templates').onchange = (e) => {
+  root.querySelector('.bd-templates').onchange = async (e) => {
     const id = e.target.value;
     if (!id) return;
     const name = listTemplates().find((t) => t.id === id)?.name || id;
-    if (!confirm(`Apply “${name}”? This replaces the current board.`)) {
+    const ok = await confirmModal(`Apply “${name}”? This replaces the current board.`, {
+      title: 'Apply template',
+      confirmLabel: 'Apply',
+      danger: true,
+    });
+    if (!ok) {
       e.target.value = '';
       return;
     }

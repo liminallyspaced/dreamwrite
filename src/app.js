@@ -38,6 +38,15 @@ import {
   applySceneSuggestion,
   sceneSlugPhase,
 } from './core/script/smarttype.js';
+import { toast, confirmModal, alertModal, promptModal } from './core/ui/dialogs.js';
+import {
+  touchLibraryEntry,
+  loadThemePref,
+  saveThemePref,
+  THEMES,
+} from './core/library/catalog.js';
+import { mountLibraryView } from './views/library/library-view.js';
+import { createCommandPalette, showShortcutsOverlay } from './views/chrome/command-palette.js';
 
 (() => {
   // Still the global rather than a direct import: engine-global.js installs it, and
@@ -54,6 +63,8 @@ import {
     activeBlockId: null,
     view: 'script',
     focusMode: false,
+    editorZoom: 1,
+    themeId: loadThemePref(),
     findIndex: -1,
     acIndex: 0,
     acItems: [],
@@ -164,6 +175,8 @@ import {
 
   const els = {
     welcome: $('#welcome'),
+    library: $('#library'),
+    statusZoom: $('#statusZoom'),
     sceneList: $('#sceneList'),
     projectTitleLabel: $('#projectTitleLabel'),
     dirtyDot: $('#dirtyDot'),
@@ -194,13 +207,181 @@ import {
 
   /* ---------- bootstrap ---------- */
 
+  let libraryApi = null;
+  let commandPalette = null;
+
   function init() {
     bindUi();
     bindMenu();
+    bindPhase10();
+    applyTheme(state.themeId);
     loadAutosaveOrWelcome();
     window.addEventListener('beforeunload', () => {
       if (state.dirty) persistLocal();
     });
+  }
+
+  function bindPhase10() {
+    libraryApi = mountLibraryView(els.library, {
+      onNew: () => newProject(true),
+      onOpen: () => openProject(),
+      onImport: () => importFountain(),
+      onSample: () => loadSample(),
+      onOpenEntry: (entry) => openLibraryEntry(entry),
+      onTheme: (id) => {
+        applyTheme(id);
+        exec(
+          'meta.setSettings',
+          { settings: { ...(state.project.settings || {}), theme: state.themeId } },
+          { mergeKey: 'meta:settings', label: 'Theme' }
+        );
+      },
+      getTheme: () => state.themeId,
+      promptTitle: (current) =>
+        promptModal('Project title', { title: 'Rename', defaultValue: current || '' }),
+      onDeleted: (entry) => {
+        toast(`Removed “${entry.title}” from library`, {
+          actionLabel: 'Undo',
+          onAction: () => {
+            touchLibraryEntry(entry);
+            libraryApi?.render();
+          },
+        });
+      },
+    });
+
+    commandPalette = createCommandPalette({
+      run: (action) => runCommandAction(action),
+      extraCommands: [
+        { id: 'sample', label: 'Load sample script', action: 'sample', group: 'File' },
+        { id: 'exportFountain', label: 'Export Fountain', action: 'exportFountain', group: 'File' },
+        { id: 'snapshot', label: 'Revision snapshot', action: 'snapshot', group: 'File' },
+        { id: 'themeCarbon', label: 'Theme: Carbon', action: 'theme:carbon', group: 'View' },
+        { id: 'themePaper', label: 'Theme: Paper', action: 'theme:paper', group: 'View' },
+        { id: 'themeManuscript', label: 'Theme: Manuscript', action: 'theme:manuscript', group: 'View' },
+      ],
+    });
+
+    $('#btnLibrary')?.addEventListener('click', () => showLibrary(true));
+    $('#btnPalette')?.addEventListener('click', () => commandPalette?.toggle());
+    els.statusZoom?.addEventListener('click', () => setEditorZoom(1));
+
+    // Editor zoom: Ctrl+scroll (CSS transform only)
+    const scroll = document.getElementById('editorScroll');
+    scroll?.addEventListener(
+      'wheel',
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        const next = state.editorZoom * (e.deltaY > 0 ? 0.92 : 1.08);
+        setEditorZoom(next);
+      },
+      { passive: false }
+    );
+
+    setEditorZoom(state.editorZoom);
+  }
+
+  function runCommandAction(action) {
+    if (action === 'save') return saveProject(false);
+    if (action === 'saveAs') return saveProject(true);
+    if (action === 'open') return openProject();
+    if (action === 'new') return newProject(false);
+    if (action === 'exportPdf') return exportPdf();
+    if (action === 'exportFountain') return exportFountain();
+    if (action === 'snapshot') return snapshot('manual');
+    if (action === 'library') return showLibrary(true);
+    if (action === 'sample') return loadSample();
+    if (action === 'undo') return performUndo();
+    if (action === 'redo') return performRedo();
+    if (action === 'find') return toggleFind(true);
+    if (action === 'palette') return commandPalette?.toggle();
+    if (action === 'shortcuts') return showShortcutsOverlay();
+    if (action === 'focus') return window.PlatenChrome?.cycleFocus?.();
+    if (action === 'zoomIn') return setEditorZoom(state.editorZoom * 1.1);
+    if (action === 'zoomOut') return setEditorZoom(state.editorZoom * 0.9);
+    if (action === 'zoomReset') return setEditorZoom(1);
+    if (action?.startsWith('view:')) {
+      showLibrary(false);
+      return setView(action.slice(5));
+    }
+    if (action?.startsWith('theme:')) {
+      applyTheme(action.slice(6));
+      exec(
+        'meta.setSettings',
+        { settings: { ...(state.project.settings || {}), theme: state.themeId } },
+        { mergeKey: 'meta:settings', label: 'Theme' }
+      );
+    }
+  }
+
+  function setEditorZoom(z) {
+    state.editorZoom = Math.max(0.6, Math.min(2, Number(z) || 1));
+    document.documentElement.style.setProperty('--editor-zoom', String(state.editorZoom));
+    if (els.statusZoom) els.statusZoom.textContent = `${Math.round(state.editorZoom * 100)}%`;
+  }
+
+  function showLibrary(show) {
+    if (!els.library) return;
+    if (show) {
+      libraryApi?.render();
+      els.library.classList.remove('hidden');
+      els.welcome?.classList.add('hidden');
+    } else {
+      els.library.classList.add('hidden');
+    }
+  }
+
+  function recordLibraryFromProject() {
+    const title = state.project.titlePage?.title || 'Untitled Screenplay';
+    const stats = E.computeStats(state.project);
+    const path = state.filePath || null;
+    let kind = 'autosave';
+    if (path) {
+      const p = String(path);
+      kind =
+        p.endsWith('.platen') || p.endsWith('.json') || p.endsWith('.sdesk') || p.endsWith('.dreamwrite')
+          ? 'v1-file'
+          : 'v2-folder';
+    }
+    touchLibraryEntry({
+      id: path || `session_${state.project.id || 'local'}`,
+      title,
+      path,
+      kind,
+      pageCount: stats.pages,
+      sceneCount: stats.scenes,
+      lastOpened: new Date().toISOString(),
+    });
+    libraryApi?.render();
+  }
+
+  async function openLibraryEntry(entry) {
+    if (!entry) return;
+    if (entry.kind === 'sample') {
+      loadSample();
+      return;
+    }
+    if (entry.path && api?.openPath) {
+      try {
+        const res = await api.openPath(entry.path);
+        if (res) {
+          await adoptOpenResult(res);
+          recordLibraryFromProject();
+          return;
+        }
+      } catch (err) {
+        toast(`Could not open “${entry.title}”: ${err?.message || err}`);
+        return;
+      }
+    }
+    if (entry.path && api?.openProject) {
+      toast(`Open “${entry.title}” from the file dialog…`);
+      await openProject();
+      return;
+    }
+    showLibrary(false);
+    toast(`No path for “${entry.title}” — use Open or Sample.`);
   }
 
   function bindUi() {
@@ -541,15 +722,23 @@ import {
   }
 
   function showWelcome() {
-    els.welcome.classList.remove('hidden');
+    // Phase 10: library is the home screen (legacy #welcome kept for smoke stubs)
+    els.welcome?.classList.add('hidden');
+    showLibrary(true);
   }
   function hideWelcome() {
-    els.welcome.classList.add('hidden');
+    els.welcome?.classList.add('hidden');
+    showLibrary(false);
   }
 
-  function newProject(fromWelcome = false) {
+  async function newProject(fromWelcome = false) {
     if (state.dirty && !fromWelcome) {
-      if (!confirm('Discard unsaved changes and start a new project?')) return;
+      const ok = await confirmModal('Discard unsaved changes and start a new project?', {
+        title: 'New project',
+        confirmLabel: 'Discard',
+        danger: true,
+      });
+      if (!ok) return;
     }
     store.resetDocument(E.emptyProject('Untitled Screenplay'), {
       filePath: null,
@@ -560,6 +749,7 @@ import {
     hideWelcome();
     fullRender();
     focusFirstBlock();
+    recordLibraryFromProject();
   }
 
   function loadSample() {
@@ -570,6 +760,15 @@ import {
     hideWelcome();
     fullRender();
     focusFirstBlock();
+    touchLibraryEntry({
+      id: 'sample_last_signal',
+      title: 'THE LAST SIGNAL',
+      path: null,
+      kind: 'sample',
+      pageCount: E.computeStats(state.project).pages,
+      sceneCount: E.computeStats(state.project).scenes,
+      lastOpened: new Date().toISOString(),
+    });
   }
 
   /** Load a new document identity into the store (clears undo). */
@@ -632,6 +831,7 @@ import {
     adoptDocument(project, { filePath: keepPath, dirty: false });
     hideWelcome();
     fullRender();
+    recordLibraryFromProject();
   }
 
   async function openProject() {
@@ -707,6 +907,8 @@ import {
     clearSaveAlert('file');
     updateChrome();
     persistLocal();
+    recordLibraryFromProject();
+    toast('Saved');
   }
 
   async function importFountain() {
@@ -719,6 +921,7 @@ import {
     });
     hideWelcome();
     fullRender();
+    recordLibraryFromProject();
   }
 
   function exportReadyProject() {
@@ -912,7 +1115,7 @@ import {
 
   function fullRender() {
     state.suppressDirty = true;
-    applyTheme(state.project.settings?.theme || 'dark');
+    applyTheme(state.project.settings?.theme || state.themeId || loadThemePref());
     renderBlocks();
     renderScenes();
     renderCards();
@@ -924,6 +1127,7 @@ import {
     refreshStats();
     updateChrome();
     setView(state.view);
+    setEditorZoom(state.editorZoom);
     state.suppressDirty = false;
   }
 
@@ -2072,23 +2276,19 @@ import {
       )
       .join('');
     els.historyList.querySelectorAll('button[data-hid]').forEach((btn) => {
-      btn.onclick = () => {
+      btn.onclick = async () => {
         const h = list.find((x) => x.id === btn.dataset.hid);
         if (!h) return;
 
         const when = h.at ? new Date(h.at).toLocaleString() : 'this snapshot';
-        if (
-          !confirm(
-            `Restore "${h.label || 'edit'}" from ${when}?\n\n` +
-              'Your current script will be replaced — but it gets snapshotted first, ' +
-              'so you can restore back to it.'
-          )
-        ) {
-          return;
-        }
+        const ok = await confirmModal(
+          `Restore "${h.label || 'edit'}" from ${when}?\n\n` +
+            'Your current script will be replaced — undo restores the prior state.',
+          { title: 'Restore revision', confirmLabel: 'Restore', danger: true }
+        );
+        if (!ok) return;
 
         // One undoable command (store design § catalogue project.restoreRevision).
-        // Inverse restores the live blocks — no separate "before restore" snapshot needed.
         exec(
           'project.restoreRevision',
           {
@@ -2101,6 +2301,10 @@ import {
         renderScenes();
         refreshStats();
         renderHistory();
+        toast('Revision restored', {
+          actionLabel: 'Undo',
+          onAction: () => performUndo(),
+        });
       };
     });
   }
@@ -2293,25 +2497,40 @@ import {
   }
 
   function toggleTheme() {
-    const next = document.documentElement.classList.contains('theme-light') ? 'dark' : 'light';
+    const order = THEMES.map((t) => t.id);
+    const i = Math.max(0, order.indexOf(state.themeId));
+    const next = order[(i + 1) % order.length];
     applyTheme(next);
     exec(
       'meta.setSettings',
-      { settings: { ...(state.project.settings || {}), theme: next } },
+      { settings: { ...(state.project.settings || {}), theme: state.themeId } },
       { mergeKey: 'meta:settings', label: 'Theme' }
     );
   }
 
+  /** Normalize legacy dark/light + Phase 10 theme ids → carbon | paper | manuscript */
+  function normalizeThemeId(theme) {
+    const t = String(theme || 'carbon').toLowerCase();
+    if (t === 'dark' || t === 'carbon') return 'carbon';
+    if (t === 'light' || t === 'paper') return 'paper';
+    if (t === 'manuscript' || t === 'sepia') return 'manuscript';
+    if (THEMES.some((x) => x.id === t)) return t;
+    return 'carbon';
+  }
+
   function applyTheme(theme) {
-    const light = theme === 'light';
-    document.documentElement.classList.toggle('theme-light', light);
-    document.documentElement.classList.toggle('theme-dark', !light);
-    // Label is the *next* action, not the focus-mode "Paper" pill
+    const id = normalizeThemeId(theme);
+    state.themeId = id;
+    saveThemePref(id);
+    document.documentElement.setAttribute('data-theme', id);
+    document.documentElement.classList.toggle('theme-light', id === 'paper');
+    document.documentElement.classList.toggle('theme-dark', id !== 'paper');
     const btn = $('#btnTheme');
     if (btn) {
-      btn.textContent = light ? 'Dark' : 'Light';
-      btn.title = light ? 'Switch to dark desk theme' : 'Switch to light paper theme';
-      btn.classList.toggle('active', light);
+      const labels = { carbon: 'Carbon', paper: 'Paper', manuscript: 'Manuscript' };
+      btn.textContent = labels[id] || 'Theme';
+      btn.title = 'Cycle theme (Carbon / Paper / Manuscript)';
+      btn.classList.toggle('active', id !== 'carbon');
     }
   }
 
@@ -2381,7 +2600,6 @@ import {
     const q = els.findInput.value;
     const r = els.replaceInput.value;
     if (!q) return;
-    // Count first (before mutation) so the alert is accurate
     const re = new RegExp(escapeRegExp(q), 'gi');
     let count = 0;
     for (const b of state.project.blocks || []) {
@@ -2390,7 +2608,7 @@ import {
       re.lastIndex = 0;
     }
     if (!count) {
-      alert('No matches.');
+      toast('No matches.');
       return;
     }
     const result = exec(
@@ -2402,7 +2620,7 @@ import {
       renderBlocks();
       refreshStats();
     }
-    alert(`Replaced ${count} occurrence(s).`);
+    toast(`Replaced ${count} occurrence(s).`);
   }
 
   /* ---------- autocomplete (SmartType) ---------- */
@@ -2490,8 +2708,51 @@ import {
 
   function onGlobalKeydown(e) {
     const mod = e.ctrlKey || e.metaKey;
+    const tag = (e.target && e.target.tagName) || '';
+    const typing =
+      !!e.target?.isContentEditable ||
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT';
+
+    // Shortcuts overlay (?) — not while typing
+    if (!mod && e.key === '?' && !typing) {
+      e.preventDefault();
+      showShortcutsOverlay();
+      return;
+    }
+
     // Never hijack plain character keys — only shortcuts
     if (!mod && e.key !== 'F11') return;
+
+    // Command palette
+    if (mod && !e.shiftKey && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      commandPalette?.toggle();
+      return;
+    }
+    // Library
+    if (mod && e.shiftKey && e.key.toLowerCase() === 'l') {
+      e.preventDefault();
+      showLibrary(true);
+      return;
+    }
+    // Editor zoom
+    if (mod && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      setEditorZoom(state.editorZoom * 1.1);
+      return;
+    }
+    if (mod && e.key === '-') {
+      e.preventDefault();
+      setEditorZoom(state.editorZoom * 0.9);
+      return;
+    }
+    if (mod && e.key === '0') {
+      e.preventDefault();
+      setEditorZoom(1);
+      return;
+    }
 
     // Own undo/redo (Chromium CE undo is wiped by renderBlocks)
     if (mod && !e.altKey && e.key.toLowerCase() === 'z' && !e.shiftKey) {
@@ -2550,6 +2811,7 @@ import {
         'search',
       ];
       e.preventDefault();
+      showLibrary(false);
       setView(views[+e.key - 1]);
     }
   }

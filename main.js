@@ -415,6 +415,26 @@ function defaultProjectsDir() {
   return dir;
 }
 
+/** Open a project path known to the library (file or v2 folder). */
+ipcMain.handle('project:openPath', async (_e, filePath) => {
+  if (!filePath || typeof filePath !== 'string') return null;
+  const resolved = path.resolve(filePath);
+  assertPathAllowed(resolved);
+  const stat = await fsp.stat(resolved);
+  if (stat.isDirectory()) {
+    const pj = path.join(resolved, 'project.json');
+    if (!fs.existsSync(pj)) throw new Error('Not a DreamWrite project folder');
+    return loadV2Folder(resolved);
+  }
+  const base = path.basename(resolved).toLowerCase();
+  if (base === 'project.json') {
+    return loadV2Folder(path.dirname(resolved));
+  }
+  setActiveProjectRoot(null);
+  const content = await fsp.readFile(resolved, 'utf8');
+  return { filePath: resolved, content, kind: 'v1-file', projectRoot: null };
+});
+
 ipcMain.handle('dialog:openProject', async () => {
   // Windows cannot mix openFile + openDirectory. macOS/Linux can.
   // Prefer file open; if user picks project.json, treat parent as v2 folder.

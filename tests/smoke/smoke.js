@@ -140,9 +140,39 @@ async function main() {
     check('PlatenUI bridge bound', await cdp.evaluate('typeof window.PlatenUI === "object"'));
     check('PlatenChrome bound', await cdp.evaluate('typeof window.PlatenChrome === "object"'));
 
-    // --- get past the welcome screen into the editor ---------------------------
-    await cdp.evaluate('document.querySelector("#welcomeSample").click()');
-    await new Promise((r) => setTimeout(r, 600));
+    // --- Phase 10: library home surface (before sample) -----------------------
+    const libHome = await cdp.evaluate(`(() => {
+      const lib = document.getElementById('library');
+      const sampleLib = document.querySelector('[data-lib="sample"]');
+      const theme = document.documentElement.getAttribute('data-theme');
+      const viewGroups = document.querySelectorAll('.view-group').length;
+      return {
+        libraryEl: !!lib,
+        libraryVisible: !!(lib && !lib.classList.contains('hidden')),
+        sampleBtn: !!sampleLib,
+        theme,
+        viewGroups,
+        statusZoom: !!document.getElementById('statusZoom'),
+        btnPalette: !!document.getElementById('btnPalette'),
+        btnLibrary: !!document.getElementById('btnLibrary'),
+      };
+    })()`);
+    check(
+      'phase 10 library/chrome surface',
+      libHome.libraryEl && libHome.viewGroups >= 3 && libHome.statusZoom && libHome.btnPalette && libHome.btnLibrary,
+      JSON.stringify(libHome)
+    );
+    check('phase 10 theme token set', ['carbon', 'paper', 'manuscript'].includes(libHome.theme), libHome.theme);
+
+    // --- get into the editor: library Sample first, legacy #welcomeSample fallback (A5)
+    await cdp.evaluate(`(() => {
+      const libSample = document.querySelector('[data-lib="sample"]');
+      if (libSample) { libSample.click(); return 'library'; }
+      const w = document.querySelector('#welcomeSample');
+      if (w) { w.click(); return 'welcome-stub'; }
+      throw new Error('no sample entry point');
+    })()`);
+    await new Promise((r) => setTimeout(r, 700));
 
     // Multi-page stack: editables live under .page-stack (first host also has #blocks)
     const blockCount = await cdp.evaluate(
@@ -375,6 +405,36 @@ async function main() {
     check('save alert element present', await cdp.evaluate('!!document.getElementById("saveAlert")'));
     check('save alert hidden while healthy', await cdp.evaluate('document.getElementById("saveAlert").hidden === true'));
 
+    // --- Phase 10: palette + zoom + library hide after sample -----------------
+    const p10live = await cdp.evaluate(`(() => {
+      const lib = document.getElementById('library');
+      // Open palette via Ctrl+K simulation path — button click
+      document.getElementById('btnPalette')?.click();
+      const paletteOpen = !!(document.getElementById('commandPalette') && !document.getElementById('commandPalette').hidden);
+      // Close palette (Esc path)
+      document.getElementById('commandPalette')?.click();
+      // Zoom via CSS var
+      document.documentElement.style.setProperty('--editor-zoom', '1.2');
+      const zoom = getComputedStyle(document.documentElement).getPropertyValue('--editor-zoom').trim();
+      // Cycle theme attribute
+      const before = document.documentElement.getAttribute('data-theme');
+      document.getElementById('btnTheme')?.click();
+      const after = document.documentElement.getAttribute('data-theme');
+      return {
+        libraryHidden: !lib || lib.classList.contains('hidden'),
+        paletteOpen,
+        zoom,
+        themeCycled: before !== after || ['carbon', 'paper', 'manuscript'].includes(after),
+        before,
+        after,
+      };
+    })()`);
+    check(
+      'phase 10 palette/zoom/theme live',
+      p10live.libraryHidden && p10live.paletteOpen && p10live.themeCycled,
+      JSON.stringify(p10live)
+    );
+
     // --- no errors accumulated anywhere ---------------------------------------
     const pageErrors = await cdp.evaluate('window.__smokeErrors ? window.__smokeErrors.length : 0');
     check('no uncaught page errors', pageErrors === 0);
@@ -383,6 +443,30 @@ async function main() {
   } finally {
     child.kill();
   }
+
+  // Zero native dialogs gate (Phase 10) — scan source, not bundle
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '..', '..', 'src');
+  const offenders = [];
+  function walk(dir) {
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name);
+      if (fs.statSync(p).isDirectory()) {
+        walk(p);
+        continue;
+      }
+      if (!/\.js$/.test(name) || name === 'bundle.js' || name === 'dialogs.js') continue;
+      const text = fs.readFileSync(p, 'utf8');
+      const re = /\b(?:window\.)?(alert|confirm|prompt)\s*\(/g;
+      let m;
+      while ((m = re.exec(text))) {
+        offenders.push(`${path.relative(root, p)}: ${m[0]}`);
+      }
+    }
+  }
+  walk(root);
+  check('zero native alert/confirm/prompt in src', offenders.length === 0, offenders.slice(0, 6).join('; '));
 
   const rendererErrors = (stderr.match(/Uncaught|TypeError|ReferenceError/g) || []).length;
   check('no renderer console errors', rendererErrors === 0, rendererErrors ? stderr.slice(0, 400) : '');

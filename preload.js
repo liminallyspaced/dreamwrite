@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 const dreamwriteApi = {
   openProject: () => ipcRenderer.invoke('dialog:openProject'),
   openProjectFolder: () => ipcRenderer.invoke('dialog:openProjectFolder'),
+  /** Re-open a known library path (file or v2 folder). Phase 10. */
+  openPath: (filePath) => ipcRenderer.invoke('project:openPath', filePath),
   saveProject: (payload) => ipcRenderer.invoke('dialog:saveProject', payload),
   importFountain: () => ipcRenderer.invoke('dialog:importFountain'),
   importImage: () => ipcRenderer.invoke('dialog:importImage'),
