@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="website/images/logo.png" alt="DreamWrite" width="120" height="120" />
+  <img src="website/images/dreamwrite-icon.png" alt="DreamWrite" width="160" height="160" />
 </p>
 
 <h1 align="center">DreamWrite</h1>
@@ -192,7 +192,7 @@ MIT — see [LICENSE](LICENSE).
 Not affiliated with Final Draft, WriterDuet, Celtx, Milanote, or Aeon Timeline.
 
 <p align="center">
-  <img src="website/images/brand.png" alt="" width="48" height="48" />
+  <img src="website/images/dreamwrite-icon.png" alt="" width="64" height="64" />
   <br />
   <sub>DreamWrite · liminallyspaced</sub>
 </p>

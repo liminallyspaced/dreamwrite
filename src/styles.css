@@ -237,10 +237,10 @@ textarea { resize: vertical; min-height: 80px; }
 .brand-mark {
   width: 28px; height: 28px; border-radius: 7px; overflow: hidden;
   border: 1px solid #3a3a3a; flex-shrink: 0;
-  background: #0a0a0a;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  background: transparent;
+  box-shadow: none;
 }
-.brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .brand-name {
   font-family: var(--font-display);
   font-weight: 600;
@@ -892,11 +892,11 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .welcome-logo {
   width: 104px; height: 104px; margin: 0 auto 18px;
-  border-radius: 16px; overflow: hidden; border: 1px solid #3a3a3a;
-  background: #0a0a0a;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+  border-radius: 16px; overflow: hidden; border: none;
+  background: transparent;
+  box-shadow: none;
 }
-.welcome-logo img { width: 100%; height: 100%; object-fit: cover; }
+.welcome-logo img { width: 100%; height: 100%; object-fit: contain; }
 .welcome-card h1 {
   margin: 0 0 8px;
   font-size: 30px;
